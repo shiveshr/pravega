@@ -1,17 +1,5 @@
 /**
  * Copyright (c) 2017 Dell Inc., or its subsidiaries.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.controller.store.stream.tables;
 
@@ -264,7 +252,7 @@ public class TableHelper {
 
         Optional<HistoryRecord> historyRecordOpt = findSegmentCreatedEvent(startingOffset, segment, historyTable);
         if (!historyRecordOpt.isPresent()) {
-            // cant compute predecessors because the creation event is not present in history table yet. 
+            // cant compute predecessors because the creation event is not present in history table yet.
             return new ArrayList<>();
         }
 
@@ -330,10 +318,12 @@ public class TableHelper {
     public static byte[] addPartialRecordToHistoryTable(final byte[] historyTable,
                                                         final List<Integer> newActiveSegments) {
         final ByteArrayOutputStream historyStream = new ByteArrayOutputStream();
+        Optional<HistoryRecord> last = HistoryRecord.readLatestRecord(historyTable, false);
+        assert last.isPresent() && !(last.get().isPartial());
 
         try {
             historyStream.write(historyTable);
-            historyStream.write(new HistoryRecord(newActiveSegments, historyTable.length).toBytePartial());
+            historyStream.write(new HistoryRecord(last.get().getEpoch() + 1, newActiveSegments, historyTable.length).toBytePartial());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -352,15 +342,14 @@ public class TableHelper {
                                                              final HistoryRecord partialHistoryRecord,
                                                              final long timestamp) {
         Optional<HistoryRecord> record = HistoryRecord.readLatestRecord(historyTable, false);
-        assert record.isPresent() && record.get().isPartial();
-
+        assert record.isPresent() && record.get().isPartial() && record.get().getEpoch() == partialHistoryRecord.getEpoch();
         final ByteArrayOutputStream historyStream = new ByteArrayOutputStream();
 
         try {
             historyStream.write(historyTable);
 
             historyStream.write(new HistoryRecord(partialHistoryRecord.getSegments(),
-                    timestamp, partialHistoryRecord.getOffset()).remainingByteArray());
+                    partialHistoryRecord.getEpoch(), timestamp, partialHistoryRecord.getOffset()).remainingByteArray());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -381,6 +370,7 @@ public class TableHelper {
         try {
             historyStream.write(new HistoryRecord(
                     newActiveSegments,
+                    0,
                     timestamp,
                     0)
                     .toByteArray());

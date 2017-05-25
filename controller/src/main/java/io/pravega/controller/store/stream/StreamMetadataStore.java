@@ -1,12 +1,12 @@
 /**
  * Copyright (c) 2017 Dell Inc., or its subsidiaries.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,11 +15,11 @@
  */
 package io.pravega.controller.store.stream;
 
+import io.pravega.client.stream.StreamConfiguration;
 import io.pravega.controller.store.stream.tables.ActiveTxnRecord;
 import io.pravega.controller.store.stream.tables.State;
 import io.pravega.controller.stream.api.grpc.v1.Controller.CreateScopeStatus;
 import io.pravega.controller.stream.api.grpc.v1.Controller.DeleteScopeStatus;
-import io.pravega.client.stream.StreamConfiguration;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.List;
@@ -64,13 +64,44 @@ public interface StreamMetadataStore {
                                             final OperationContext context,
                                             final Executor executor);
 
+    /**
+     * Api to Delete the stream related metadata.
+     *
+     * @param scopeName       scope name
+     * @param streamName      stream name
+     * @param context         operation context
+     * @param executor        callers executor
+     * @return future
+     */
     CompletableFuture<Void> deleteStream(final String scopeName,
                                          final String streamName,
                                          final OperationContext context,
                                          final Executor executor);
 
+    /**
+     * Api to set the state for stream in metadata.
+     * @param scope scope name
+     * @param name stream name
+     * @param state stream state
+     * @param context operation context
+     * @param executor callers executor
+     * @return Future of boolean if state update succeeded.
+     */
     CompletableFuture<Boolean> setState(String scope, String name,
                                         State state, OperationContext context,
+                                        Executor executor);
+
+    /**
+     * Api to get the state for stream from metadata.
+     *
+     * @param scope scope name
+     * @param name stream name
+     * @param context operation context
+     * @param executor callers executor
+     * @return Future of boolean if state update succeeded.
+     */
+    CompletableFuture<State> getState(String scope, String name,
+                                        OperationContext context,
                                         Executor executor);
 
     /**

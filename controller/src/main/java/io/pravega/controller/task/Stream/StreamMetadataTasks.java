@@ -169,14 +169,10 @@ public class StreamMetadataTasks extends TaskBase {
      * @param contextOpt     optional context
      * @return returns the newly created segments.
      */
-    @Task(name = "scaleStream", version = "1.0", resource = "{scope}/{stream}")
     public CompletableFuture<ScaleResponse> scale(String scope, String stream, ArrayList<Integer> sealedSegments,
                                                   ArrayList<AbstractMap.SimpleEntry<Double, Double>> newRanges, long scaleTimestamp,
                                                   OperationContext contextOpt) {
-        return execute(
-                new Resource(scope, stream),
-                new Serializable[]{scope, stream, sealedSegments, newRanges, scaleTimestamp, null},
-                () -> scaleBody(scope, stream, sealedSegments, newRanges, scaleTimestamp, contextOpt));
+        return scaleBody(scope, stream, sealedSegments, newRanges, scaleTimestamp, contextOpt);
     }
 
     private CompletableFuture<CreateStreamStatus.Status> createStreamBody(String scope, String stream,

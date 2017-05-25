@@ -13,23 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.pravega.shared.controller.event;
+package io.pravega.controller.server.eventProcessor;
 
+import io.pravega.shared.controller.event.ControllerEvent;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 
-@Data
-public class ScaleEvent implements ControllerEvent {
-    public static final byte UP = (byte) 0;
-    public static final byte DOWN = (byte) 1;
-    private static final long serialVersionUID = 1L;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.UUID;
 
+@Data
+@AllArgsConstructor
+public class ScaleOpEvent implements ControllerEvent {
     private final String scope;
     private final String stream;
-    private final int segmentNumber;
-    private final byte direction;
-    private final long timestamp;
-    private final int numOfSplits;
-    private final boolean silent;
+    private final ArrayList<Integer> segments;
+    private final ArrayList<AbstractMap.SimpleEntry<Double, Double>> newRanges;
 
     @Override
     public String getKey() {

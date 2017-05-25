@@ -18,7 +18,7 @@ package io.pravega.controller.server.eventProcessor;
 import io.pravega.common.ExceptionHelpers;
 import io.pravega.common.concurrent.FutureHelpers;
 import io.pravega.common.util.Retry;
-import io.pravega.shared.controller.event.ScaleEvent;
+import io.pravega.shared.controller.event.AutoScaleEvent;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import io.pravega.controller.retryable.RetryableException;
@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  * Request handler for scale requests in scale-request-stream.
  */
 @Slf4j
-public class ScaleRequestHandler implements RequestHandler<ScaleEvent> {
+public class AutoScaleRequestHandler implements RequestHandler<AutoScaleEvent> {
 
     private static final long RETRY_INITIAL_DELAY = 100;
     private static final int RETRY_MULTIPLIER = 2;
@@ -62,9 +62,9 @@ public class ScaleRequestHandler implements RequestHandler<ScaleEvent> {
     private final StreamMetadataStore streamMetadataStore;
     private final ScheduledExecutorService executor;
 
-    public ScaleRequestHandler(final StreamMetadataTasks streamMetadataTasks,
-                               final StreamMetadataStore streamMetadataStore,
-                               final ScheduledExecutorService executor) {
+    public AutoScaleRequestHandler(final StreamMetadataTasks streamMetadataTasks,
+                                   final StreamMetadataStore streamMetadataStore,
+                                   final ScheduledExecutorService executor) {
         Preconditions.checkNotNull(streamMetadataStore);
         Preconditions.checkNotNull(streamMetadataTasks);
         Preconditions.checkNotNull(executor);
@@ -73,7 +73,7 @@ public class ScaleRequestHandler implements RequestHandler<ScaleEvent> {
         this.executor = executor;
     }
 
-    public CompletableFuture<Void> process(final ScaleEvent request) {
+    public CompletableFuture<Void> process(final AutoScaleEvent request) {
         if (!(request.getTimestamp() + REQUEST_VALIDITY_PERIOD > System.currentTimeMillis())) {
             // request no longer valid. Ignore.
             // log, because a request was fetched from the stream after its validity expired.
@@ -92,7 +92,7 @@ public class ScaleRequestHandler implements RequestHandler<ScaleEvent> {
                     .getConfiguration(request.getScope(), request.getStream(), context, executor)
                     .thenApply(StreamConfiguration::getScalingPolicy);
 
-            if (request.getDirection() == ScaleEvent.UP) {
+            if (request.getDirection() == AutoScaleEvent.UP) {
                 return policyFuture.thenComposeAsync(policy -> processScaleUp(request, policy, context), executor);
             } else {
                 return policyFuture.thenComposeAsync(policy -> processScaleDown(request, policy, context), executor);
@@ -100,7 +100,7 @@ public class ScaleRequestHandler implements RequestHandler<ScaleEvent> {
         }, executor);
     }
 
-    private CompletableFuture<Void> processScaleUp(final ScaleEvent request, final ScalingPolicy policy, final OperationContext context) {
+    private CompletableFuture<Void> processScaleUp(final AutoScaleEvent request, final ScalingPolicy policy, final OperationContext context) {
         log.debug("scale up request received for stream {} segment {}", request.getStream(), request.getSegmentNumber());
         if (policy.getType().equals(ScalingPolicy.Type.FIXED_NUM_SEGMENTS)) {
             return CompletableFuture.completedFuture(null);
@@ -120,7 +120,7 @@ public class ScaleRequestHandler implements RequestHandler<ScaleEvent> {
                 }, executor);
     }
 
-    private CompletableFuture<Void> processScaleDown(final ScaleEvent request, final ScalingPolicy policy, final OperationContext context) {
+    private CompletableFuture<Void> processScaleDown(final AutoScaleEvent request, final ScalingPolicy policy, final OperationContext context) {
         log.debug("scale down request received for stream {} segment {}", request.getStream(), request.getSegmentNumber());
         if (policy.getType().equals(ScalingPolicy.Type.FIXED_NUM_SEGMENTS)) {
             return CompletableFuture.completedFuture(null);
@@ -199,7 +199,7 @@ public class ScaleRequestHandler implements RequestHandler<ScaleEvent> {
      * @param context   operation context
      * @return CompletableFuture
      */
-    private CompletableFuture<Void> executeScaleTask(final ScaleEvent request, final ArrayList<Integer> segments,
+    private CompletableFuture<Void> executeScaleTask(final AutoScaleEvent request, final ArrayList<Integer> segments,
                                                      final ArrayList<AbstractMap.SimpleEntry<Double, Double>> newRanges,
                                                      final OperationContext context) {
         CompletableFuture<Void> result = new CompletableFuture<>();

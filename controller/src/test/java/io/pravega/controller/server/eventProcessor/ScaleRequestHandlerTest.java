@@ -18,7 +18,7 @@ package io.pravega.controller.server.eventProcessor;
 import io.pravega.common.concurrent.FutureHelpers;
 import io.pravega.test.common.TestingServerStarter;
 import io.pravega.controller.mocks.SegmentHelperMock;
-import io.pravega.shared.controller.event.ScaleEvent;
+import io.pravega.shared.controller.event.AutoScaleEvent;
 import io.pravega.controller.server.SegmentHelper;
 import io.pravega.controller.store.host.HostControllerStore;
 import io.pravega.controller.store.host.HostStoreFactory;
@@ -120,8 +120,8 @@ public class ScaleRequestHandlerTest {
 
     @Test(timeout = 10000)
     public void testScaleRequest() throws ExecutionException, InterruptedException {
-        ScaleRequestHandler requestHandler = new ScaleRequestHandler(streamMetadataTasks, streamStore, executor);
-        ScaleEvent request = new ScaleEvent(scope, stream, 2, ScaleEvent.UP, System.currentTimeMillis(), 2, false);
+        AutoScaleRequestHandler requestHandler = new AutoScaleRequestHandler(streamMetadataTasks, streamStore, executor);
+        AutoScaleEvent request = new AutoScaleEvent(scope, stream, 2, AutoScaleEvent.UP, System.currentTimeMillis(), 2, false);
 
         assertTrue(FutureHelpers.await(requestHandler.process(request)));
         List<Segment> activeSegments = streamStore.getActiveSegments(scope, stream, null, executor).get();
@@ -131,7 +131,7 @@ public class ScaleRequestHandlerTest {
         assertTrue(activeSegments.stream().anyMatch(z -> z.getNumber() == 4));
         assertTrue(activeSegments.size() == 4);
 
-        request = new ScaleEvent(scope, stream, 4, ScaleEvent.DOWN, System.currentTimeMillis(), 0, false);
+        request = new AutoScaleEvent(scope, stream, 4, AutoScaleEvent.DOWN, System.currentTimeMillis(), 0, false);
 
         assertTrue(FutureHelpers.await(requestHandler.process(request)));
         activeSegments = streamStore.getActiveSegments(scope, stream, null, executor).get();
@@ -139,7 +139,7 @@ public class ScaleRequestHandlerTest {
         assertTrue(activeSegments.stream().anyMatch(z -> z.getNumber() == 4));
         assertTrue(activeSegments.size() == 4);
 
-        request = new ScaleEvent(scope, stream, 3, ScaleEvent.DOWN, System.currentTimeMillis(), 0, false);
+        request = new AutoScaleEvent(scope, stream, 3, AutoScaleEvent.DOWN, System.currentTimeMillis(), 0, false);
 
         assertTrue(FutureHelpers.await(requestHandler.process(request)));
         activeSegments = streamStore.getActiveSegments(scope, stream, null, executor).get();

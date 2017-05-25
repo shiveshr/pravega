@@ -31,7 +31,7 @@ import io.pravega.controller.eventProcessor.ExceptionHandler;
 import io.pravega.controller.eventProcessor.impl.EventProcessorGroupConfigImpl;
 import io.pravega.controller.eventProcessor.impl.EventProcessorSystemImpl;
 import io.pravega.shared.controller.event.ControllerEvent;
-import io.pravega.shared.controller.event.ScaleEvent;
+import io.pravega.shared.controller.event.AutoScaleEvent;
 import io.pravega.controller.server.SegmentHelper;
 import io.pravega.controller.store.checkpoint.CheckpointStore;
 import io.pravega.controller.store.checkpoint.CheckpointStoreException;
@@ -66,7 +66,7 @@ public class ControllerEventProcessors extends AbstractIdleService {
 
     public static final Serializer<CommitEvent> COMMIT_EVENT_SERIALIZER = new JavaSerializer<>();
     public static final Serializer<AbortEvent> ABORT_EVENT_SERIALIZER = new JavaSerializer<>();
-    public static final Serializer<ScaleEvent> SCALE_EVENT_SERIALIZER = new JavaSerializer<>();
+    public static final Serializer<AutoScaleEvent> SCALE_EVENT_SERIALIZER = new JavaSerializer<>();
 
     // Retry configuration
     private static final long DELAY = 100;
@@ -87,8 +87,8 @@ public class ControllerEventProcessors extends AbstractIdleService {
 
     private EventProcessorGroup<CommitEvent> commitEventProcessors;
     private EventProcessorGroup<AbortEvent> abortEventProcessors;
-    private EventProcessorGroup<ScaleEvent> scaleEventProcessors;
-    private ScaleRequestHandler scaleRequestHandler;
+    private EventProcessorGroup<AutoScaleEvent> scaleEventProcessors;
+    private AutoScaleRequestHandler autoScaleRequestHandler;
 
     public ControllerEventProcessors(final String host,
                                      final ControllerEventProcessorConfig config,
@@ -127,7 +127,7 @@ public class ControllerEventProcessors extends AbstractIdleService {
         this.clientFactory = new ClientFactoryImpl(config.getScopeName(), controller, connectionFactory);
         this.system = system == null ? new EventProcessorSystemImpl("Controller", host, config.getScopeName(), clientFactory,
                 new ReaderGroupManagerImpl(config.getScopeName(), controller, clientFactory)) : system;
-        this.scaleRequestHandler = new ScaleRequestHandler(streamMetadataTasks, streamMetadataStore, executor);
+        this.autoScaleRequestHandler = new AutoScaleRequestHandler(streamMetadataTasks, streamMetadataStore, executor);
 
         this.executor = executor;
     }
@@ -373,13 +373,13 @@ public class ControllerEventProcessors extends AbstractIdleService {
                         .checkpointConfig(config.getScaleCheckpointConfig())
                         .build();
 
-        EventProcessorConfig<ScaleEvent> scaleConfig =
-                EventProcessorConfig.<ScaleEvent>builder()
+        EventProcessorConfig<AutoScaleEvent> scaleConfig =
+                EventProcessorConfig.<AutoScaleEvent>builder()
                         .config(scaleReadersConfig)
                         .decider(ExceptionHandler.DEFAULT_EXCEPTION_HANDLER)
                         .serializer(SCALE_EVENT_SERIALIZER)
                         .supplier(() -> new ConcurrentEventProcessor<>(
-                                scaleRequestHandler,
+                                autoScaleRequestHandler,
                                 executor))
                         .build();
 
