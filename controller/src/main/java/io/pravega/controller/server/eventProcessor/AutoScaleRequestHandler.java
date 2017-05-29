@@ -15,7 +15,6 @@
  */
 package io.pravega.controller.server.eventProcessor;
 
-import io.pravega.common.ExceptionHelpers;
 import io.pravega.common.concurrent.FutureHelpers;
 import io.pravega.common.util.Retry;
 import io.pravega.shared.controller.event.AutoScaleEvent;
@@ -25,7 +24,6 @@ import io.pravega.controller.retryable.RetryableException;
 import io.pravega.controller.store.stream.OperationContext;
 import io.pravega.controller.store.stream.Segment;
 import io.pravega.controller.store.stream.StreamMetadataStore;
-import io.pravega.controller.store.task.LockFailedException;
 import io.pravega.controller.task.Stream.StreamMetadataTasks;
 import io.pravega.client.stream.ScalingPolicy;
 import io.pravega.client.stream.StreamConfiguration;
@@ -116,7 +114,7 @@ public class AutoScaleRequestHandler implements RequestHandler<AutoScaleEvent> {
                         simpleEntries.add(new AbstractMap.SimpleEntry<>(segment.getKeyStart() + delta * i,
                                 segment.getKeyStart() + (delta * (i + 1))));
                     }
-                    return executeScaleTask(request, Lists.newArrayList(request.getSegmentNumber()), simpleEntries, context);
+                    return postScaleRequest(request, Lists.newArrayList(request.getSegmentNumber()), simpleEntries);
                 }, executor);
     }
 
@@ -183,7 +181,7 @@ public class AutoScaleRequestHandler implements RequestHandler<AutoScaleEvent> {
                         simpleEntries.add(new AbstractMap.SimpleEntry<>(min, max));
                         final ArrayList<Integer> segments = new ArrayList<>();
                         toMerge.forEach(segment -> segments.add(segment.getNumber()));
-                        return executeScaleTask(request, segments, simpleEntries, context);
+                        return postScaleRequest(request, segments, simpleEntries);
                     } else {
                         return CompletableFuture.completedFuture(null);
                     }
@@ -196,42 +194,17 @@ public class AutoScaleRequestHandler implements RequestHandler<AutoScaleEvent> {
      * @param request   incoming request from request stream.
      * @param segments  segments to seal
      * @param newRanges new ranges for segments to create
-     * @param context   operation context
      * @return CompletableFuture
      */
-    private CompletableFuture<Void> executeScaleTask(final AutoScaleEvent request, final ArrayList<Integer> segments,
-                                                     final ArrayList<AbstractMap.SimpleEntry<Double, Double>> newRanges,
-                                                     final OperationContext context) {
-        CompletableFuture<Void> result = new CompletableFuture<>();
-
-        streamMetadataTasks.scale(request.getScope(),
+    private CompletableFuture<Void> postScaleRequest(final AutoScaleEvent request, final ArrayList<Integer> segments,
+                                                     final ArrayList<AbstractMap.SimpleEntry<Double, Double>> newRanges) {
+        ScaleOpEvent event = new ScaleOpEvent(request.getScope(),
                 request.getStream(),
                 segments,
                 newRanges,
-                System.currentTimeMillis(),
-                context)
-                .whenCompleteAsync((res, e) -> {
-                    if (e != null) {
-                        log.warn("Scale failed for request {}/{}/{} with exception {}", request.getScope(), request.getStream(), request.getSegmentNumber(), e);
-                        Throwable cause = ExceptionHelpers.getRealException(e);
-                        if (cause instanceof LockFailedException) {
-                            result.completeExceptionally(cause);
-                        } else {
-                            result.completeExceptionally(e);
-                        }
-                    } else {
-                        // completed - either successfully or with pre-condition-failure. Clear markers on all scaled segments.
-                        log.error("scale done for {}/{}/{}", request.getScope(), request.getStream(), request.getSegmentNumber());
-                        result.complete(null);
+                false,
+                System.currentTimeMillis());
 
-                        clearMarkers(request.getScope(), request.getStream(), segments, context);
-                    }
-                }, executor);
-
-        return result;
-    }
-
-    private CompletableFuture<List<Void>> clearMarkers(final String scope, final String stream, final ArrayList<Integer> segments, final OperationContext context) {
-        return FutureHelpers.allOfWithResults(segments.stream().parallel().map(x -> streamMetadataStore.removeMarker(scope, stream, x, context, executor)).collect(Collectors.toList()));
+        return streamMetadataTasks.postScale(event);
     }
 }

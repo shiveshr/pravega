@@ -127,7 +127,7 @@ public class MockController implements Controller {
         Preconditions.checkArgument(config != null, "Stream must be created first");
         ScalingPolicy scalingPolicy = config.getScalingPolicy();
         if (scalingPolicy.getType() != ScalingPolicy.Type.FIXED_NUM_SEGMENTS) {
-            throw new IllegalArgumentException("Dynamic scaling not supported with a mock controller");
+            throw new IllegalArgumentException("Dynamic deleted not supported with a mock controller");
         }
         List<Segment> result = new ArrayList<>(scalingPolicy.getMinNumSegments());
         for (int i = 0; i < scalingPolicy.getMinNumSegments(); i++) {

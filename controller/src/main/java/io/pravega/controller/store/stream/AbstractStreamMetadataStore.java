@@ -1,12 +1,12 @@
 /**
  * Copyright (c) 2017 Dell Inc., or its subsidiaries.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,21 +15,26 @@
  */
 package io.pravega.controller.store.stream;
 
-import io.pravega.controller.store.stream.tables.ActiveTxnRecord;
-import io.pravega.shared.MetricsNames;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import io.pravega.client.stream.StreamConfiguration;
 import io.pravega.common.concurrent.FutureHelpers;
+import io.pravega.controller.store.stream.tables.ActiveTxnRecord;
+import io.pravega.controller.store.stream.tables.State;
+import io.pravega.controller.stream.api.grpc.v1.Controller.CreateScopeStatus;
+import io.pravega.controller.stream.api.grpc.v1.Controller.DeleteScopeStatus;
+import io.pravega.shared.MetricsNames;
 import io.pravega.shared.metrics.DynamicLogger;
 import io.pravega.shared.metrics.MetricsProvider;
 import io.pravega.shared.metrics.OpStatsLogger;
 import io.pravega.shared.metrics.StatsLogger;
 import io.pravega.shared.metrics.StatsProvider;
-import io.pravega.controller.store.stream.tables.State;
-import io.pravega.controller.stream.api.grpc.v1.Controller.CreateScopeStatus;
-import io.pravega.controller.stream.api.grpc.v1.Controller.DeleteScopeStatus;
-import io.pravega.client.stream.StreamConfiguration;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.tuple.ImmutablePair;
+import org.apache.commons.lang3.tuple.Pair;
+
+import javax.annotation.ParametersAreNonnullByDefault;
 import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.List;
@@ -40,12 +45,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import javax.annotation.ParametersAreNonnullByDefault;
 
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.commons.lang3.tuple.Pair;
-
+import static io.pravega.controller.store.stream.StoreException.Type.NODE_EXISTS;
+import static io.pravega.controller.store.stream.StoreException.Type.NODE_NOT_EMPTY;
+import static io.pravega.controller.store.stream.StoreException.Type.NODE_NOT_FOUND;
 import static io.pravega.shared.MetricsNames.ABORT_TRANSACTION;
 import static io.pravega.shared.MetricsNames.COMMIT_TRANSACTION;
 import static io.pravega.shared.MetricsNames.CREATE_TRANSACTION;
@@ -54,9 +57,6 @@ import static io.pravega.shared.MetricsNames.SEGMENTS_COUNT;
 import static io.pravega.shared.MetricsNames.SEGMENTS_MERGES;
 import static io.pravega.shared.MetricsNames.SEGMENTS_SPLITS;
 import static io.pravega.shared.MetricsNames.nameFromStream;
-import static io.pravega.controller.store.stream.StoreException.Type.NODE_EXISTS;
-import static io.pravega.controller.store.stream.StoreException.Type.NODE_NOT_EMPTY;
-import static io.pravega.controller.store.stream.StoreException.Type.NODE_NOT_FOUND;
 
 /**
  * Abstract Stream metadata store. It implements various read queries using the Stream interface.
@@ -136,7 +136,7 @@ public abstract class AbstractStreamMetadataStore implements StreamMetadataStore
                     CREATE_STREAM.reportSuccessValue(1);
                     DYNAMIC_LOGGER.reportGaugeValue(nameFromStream(OPEN_TRANSACTIONS, scope, name), 0);
                     DYNAMIC_LOGGER.reportGaugeValue(nameFromStream(SEGMENTS_COUNT, scope, name),
-                                    configuration.getScalingPolicy().getMinNumSegments());
+                            configuration.getScalingPolicy().getMinNumSegments());
                     DYNAMIC_LOGGER.incCounterValue(nameFromStream(SEGMENTS_SPLITS, scope, name), 0);
                     DYNAMIC_LOGGER.incCounterValue(nameFromStream(SEGMENTS_MERGES, scope, name), 0);
 
@@ -165,8 +165,8 @@ public abstract class AbstractStreamMetadataStore implements StreamMetadataStore
 
     @Override
     public CompletableFuture<State> getState(final String scope, final String name,
-                                               final OperationContext context,
-                                               final Executor executor) {
+                                             final OperationContext context,
+                                             final Executor executor) {
         return withCompletion(getStream(scope, name, context).getState(), executor);
     }
 
@@ -309,14 +309,16 @@ public abstract class AbstractStreamMetadataStore implements StreamMetadataStore
     }
 
     @Override
-    public CompletableFuture<List<Segment>> startScale(final String scope, final String name,
-                                                       final List<Integer> sealedSegments,
-                                                       final List<AbstractMap.SimpleEntry<Double, Double>> newRanges,
-                                                       final long scaleTimestamp,
-                                                       final OperationContext context,
-                                                       final Executor executor) {
+    public CompletableFuture<StartScaleResponse> startScale(final String scope,
+                                                            final String name,
+                                                            final List<Integer> sealedSegments,
+                                                            final List<AbstractMap.SimpleEntry<Double, Double>> newRanges,
+                                                            final long scaleTimestamp,
+                                                            final boolean runOnlyIfStarted,
+                                                            final OperationContext context,
+                                                            final Executor executor) {
         return withCompletion(getStream(scope, name, context)
-                .startScale(sealedSegments, newRanges, scaleTimestamp), executor);
+                .startScale(sealedSegments, newRanges, scaleTimestamp, runOnlyIfStarted), executor);
     }
 
     @Override
@@ -357,6 +359,29 @@ public abstract class AbstractStreamMetadataStore implements StreamMetadataStore
         });
 
         return future;
+    }
+
+    @Override
+    public CompletableFuture<DeleteEpochResponse> tryDeleteEpochIfScaling(final String scope,
+                                                                          final String name,
+                                                                          final long epoch,
+                                                                          final OperationContext context,
+                                                                          final Executor executor) {
+        Stream stream = getStream(scope, name, context);
+        return withCompletion(stream.scaleTryDeleteEpoch(epoch), executor)
+                .thenCompose(deleted -> {
+                    if (deleted) {
+                        return stream.latestScaleData()
+                                .thenCompose(pair -> {
+                                    List<Integer> segmentsSealed = pair.getLeft();
+                                    return FutureHelpers.allOfWithResults(pair.getRight().stream().map(stream::getSegment)
+                                            .collect(Collectors.toList()))
+                                            .thenApply(segmentsCreated -> new DeleteEpochResponse(true, segmentsSealed, segmentsCreated));
+                                });
+                    } else {
+                        return CompletableFuture.completedFuture(new DeleteEpochResponse(false, null, null));
+                    }
+                });
     }
 
     @Override
@@ -472,7 +497,7 @@ public abstract class AbstractStreamMetadataStore implements StreamMetadataStore
         return withCompletion(getStream(scope, stream, context).getActiveTxns(), executor);
     }
 
-    private Stream getStream(String scope, final String name, OperationContext context) {
+    protected Stream getStream(String scope, final String name, OperationContext context) {
         Stream stream;
         if (context != null) {
             stream = context.getStream();

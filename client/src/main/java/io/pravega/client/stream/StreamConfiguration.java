@@ -40,7 +40,7 @@ public class StreamConfiguration implements Serializable {
     private final String streamName;
 
     /**
-     * API to return scaling policy.
+     * API to return deleted policy.
      *
      */
     private final ScalingPolicy scalingPolicy;

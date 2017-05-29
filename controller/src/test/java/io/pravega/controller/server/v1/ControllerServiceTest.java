@@ -15,6 +15,8 @@
  */
 package io.pravega.controller.server.v1;
 
+import io.pravega.controller.store.stream.OperationContext;
+import io.pravega.controller.store.stream.tables.State;
 import io.pravega.test.common.TestingServerStarter;
 import io.pravega.controller.mocks.SegmentHelperMock;
 import io.pravega.controller.server.ControllerService;
@@ -92,7 +94,7 @@ public class ControllerServiceTest {
         SegmentHelper segmentHelper = SegmentHelperMock.getSegmentHelperMock();
         connectionFactory = new ConnectionFactoryImpl(false);
         streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore,
-                taskMetadataStore, segmentHelper, executor, "host", connectionFactory);
+                taskMetadataStore, segmentHelper, executor, "host", connectionFactory, null, null);
         streamTransactionMetadataTasks = new StreamTransactionMetadataTasks(streamStore,
                 hostStore, taskMetadataStore, segmentHelper, executor, "host", connectionFactory);
         timeoutService = new TimerWheelTimeoutService(streamTransactionMetadataTasks,
@@ -115,8 +117,14 @@ public class ControllerServiceTest {
 
         // region createStream
         startTs = System.currentTimeMillis();
-        streamStore.createStream(SCOPE, stream1, configuration1, startTs, null, executor).get();
-        streamStore.createStream(SCOPE, stream2, configuration2, startTs, null, executor).get();
+        OperationContext context = streamStore.createContext(SCOPE, stream1);
+        streamStore.createStream(SCOPE, stream1, configuration1, startTs, context, executor).get();
+        streamStore.setState(SCOPE, stream1, State.ACTIVE, context, executor);
+
+        OperationContext context2 = streamStore.createContext(SCOPE, stream2);
+        streamStore.createStream(SCOPE, stream2, configuration2, startTs, context2, executor).get();
+        streamStore.setState(SCOPE, stream2, State.ACTIVE, context2, executor);
+
         // endregion
 
         // region scaleSegments
@@ -125,7 +133,7 @@ public class ControllerServiceTest {
         SimpleEntry<Double, Double> segment2 = new SimpleEntry<>(0.75, 1.0);
         List<Integer> sealedSegments = Collections.singletonList(1);
 
-        List<Segment> segmentCreated = streamStore.startScale(SCOPE, stream1, sealedSegments, Arrays.asList(segment1, segment2), startTs + 20, null, executor).get();
+        List<Segment> segmentCreated = streamStore.startScale(SCOPE, stream1, sealedSegments, Arrays.asList(segment1, segment2), startTs + 20, false, null, executor).get().getSegmentsCreated();
         streamStore.scaleNewSegmentsCreated(SCOPE, stream1, sealedSegments, segmentCreated, startTs + 20, null, executor).get();
         streamStore.scaleSegmentsSealed(SCOPE, stream1, sealedSegments, segmentCreated, startTs + 20, null, executor).get();
 
@@ -133,7 +141,7 @@ public class ControllerServiceTest {
         SimpleEntry<Double, Double> segment4 = new SimpleEntry<>(0.5, 0.75);
         SimpleEntry<Double, Double> segment5 = new SimpleEntry<>(0.75, 1.0);
         sealedSegments = Arrays.asList(0, 1, 2);
-        segmentCreated = streamStore.startScale(SCOPE, stream2, sealedSegments, Arrays.asList(segment3, segment4, segment5), startTs + 20, null, executor).get();
+        segmentCreated = streamStore.startScale(SCOPE, stream2, sealedSegments, Arrays.asList(segment3, segment4, segment5), startTs + 20, false, null, executor).get().getSegmentsCreated();
         streamStore.scaleNewSegmentsCreated(SCOPE, stream2, sealedSegments, segmentCreated, startTs + 20, null, executor).get();
         streamStore.scaleSegmentsSealed(SCOPE, stream2, sealedSegments, segmentCreated, startTs + 20, null, executor).get();
         // endregion
@@ -166,13 +174,13 @@ public class ControllerServiceTest {
         assertEquals(Long.valueOf(0), segments.get(ModelHelper.createSegmentId(SCOPE, stream2, 1)));
         assertEquals(Long.valueOf(0), segments.get(ModelHelper.createSegmentId(SCOPE, stream2, 2)));
 
-        segments = consumer.getSegmentsAtTime(SCOPE, stream1, startTs + 25).get();
+        segments = consumer.getSegmentsAtTime(SCOPE, stream1, System.currentTimeMillis()).get();
         assertEquals(3, segments.size());
         assertEquals(Long.valueOf(0), segments.get(ModelHelper.createSegmentId(SCOPE, stream1, 0)));
         assertEquals(Long.valueOf(0), segments.get(ModelHelper.createSegmentId(SCOPE, stream1, 2)));
         assertEquals(Long.valueOf(0), segments.get(ModelHelper.createSegmentId(SCOPE, stream1, 3)));
 
-        segments = consumer.getSegmentsAtTime(SCOPE, stream2, startTs + 25).get();
+        segments = consumer.getSegmentsAtTime(SCOPE, stream2, System.currentTimeMillis()).get();
         assertEquals(3, segments.size());
         assertEquals(Long.valueOf(0), segments.get(ModelHelper.createSegmentId(SCOPE, stream2, 3)));
         assertEquals(Long.valueOf(0), segments.get(ModelHelper.createSegmentId(SCOPE, stream2, 4)));

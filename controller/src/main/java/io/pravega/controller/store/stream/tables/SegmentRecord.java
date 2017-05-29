@@ -18,6 +18,8 @@ package io.pravega.controller.store.stream.tables;
 import io.pravega.common.util.BitConverter;
 import lombok.Data;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 @Data
@@ -29,20 +31,31 @@ import java.util.Optional;
  */
 public class SegmentRecord {
     public static final int SEGMENT_RECORD_SIZE = Integer.BYTES + Long.BYTES + Double.BYTES + Double.BYTES;
-    public static final int SEGMENT_CHUNK_SIZE = 100000;
 
     private final int segmentNumber;
     private final long startTime;
     private final double routingKeyStart;
     private final double routingKeyEnd;
 
-    public static Optional<SegmentRecord> readRecord(final byte[] segmentTable, final int number) {
-        int offset = (number % SegmentRecord.SEGMENT_CHUNK_SIZE) * SegmentRecord.SEGMENT_RECORD_SIZE;
+    static Optional<SegmentRecord> readRecord(final byte[] segmentTable, final int number) {
+        int offset = number * SegmentRecord.SEGMENT_RECORD_SIZE;
 
         if (offset >= segmentTable.length) {
             return Optional.empty();
         }
         return Optional.of(parse(segmentTable, offset));
+    }
+
+    static List<SegmentRecord> readLastN(final byte[] segmentTable, final int count) {
+        int totalSegments = segmentTable.length / SEGMENT_RECORD_SIZE;
+        List<SegmentRecord> result = new ArrayList<>(count);
+        for (int i = totalSegments - count; i < totalSegments; i++) {
+            int offset = i * SegmentRecord.SEGMENT_RECORD_SIZE;
+            if (offset >= 0) {
+                result.add(parse(segmentTable, offset));
+            }
+        }
+        return result;
     }
 
     private static SegmentRecord parse(final byte[] table, final int offset) {
@@ -56,7 +69,7 @@ public class SegmentRecord {
         return Double.longBitsToDouble(BitConverter.readLong(b, offset));
     }
 
-    public byte[] toByteArray() {
+    byte[] toByteArray() {
         byte[] b = new byte[SEGMENT_RECORD_SIZE];
         BitConverter.writeInt(b, 0, segmentNumber);
         BitConverter.writeLong(b, Integer.BYTES, startTime);

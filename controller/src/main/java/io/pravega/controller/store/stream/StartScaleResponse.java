@@ -13,27 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.pravega.controller.server.eventProcessor;
+package io.pravega.controller.store.stream;
 
-import io.pravega.shared.controller.event.ControllerEvent;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 
-import java.util.AbstractMap;
 import java.util.List;
 
 @Data
-@AllArgsConstructor
-public class ScaleOpEvent implements ControllerEvent {
-    private final String scope;
-    private final String stream;
-    private final List<Integer> segmentsToSeal;
-    private final List<AbstractMap.SimpleEntry<Double, Double>> newRanges;
-    private final boolean runOnlyIfStarted;
-    private final long scaleTime;
-
-    @Override
-    public String getKey() {
-        return String.format("%s/%s", scope, stream);
-    }
+public class StartScaleResponse {
+    private final long currentEpoch;
+    private final List<Segment> segmentsCreated;
 }

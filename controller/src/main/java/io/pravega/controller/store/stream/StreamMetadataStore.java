@@ -260,19 +260,21 @@ public interface StreamMetadataStore {
      * @param newRanges      new key ranges to be added to the stream which maps to a new segment per range in the stream
      * @param sealedSegments segments to be sealed
      * @param scaleTimestamp timestamp at which scale was requested
+     * @param runOnlyIfStarted run only if the scale operation has already been started.
      * @param context        operation context
      * @param executor       callers executor
      * @return the list of newly created segments
      */
-    CompletableFuture<List<Segment>> startScale(final String scope, final String name,
-                                                final List<Integer> sealedSegments,
-                                                final List<SimpleEntry<Double, Double>> newRanges,
-                                                final long scaleTimestamp,
-                                                final OperationContext context,
-                                                final Executor executor);
+    CompletableFuture<StartScaleResponse> startScale(final String scope, final String name,
+                                                            final List<Integer> sealedSegments,
+                                                            final List<SimpleEntry<Double, Double>> newRanges,
+                                                            final long scaleTimestamp,
+                                                            final boolean runOnlyIfStarted,
+                                                            final OperationContext context,
+                                                            final Executor executor);
 
     /**
-     * Called after new segments are created in pravega.
+     * Called after new segments are created in SSS.
      *
      * @param scope          stream scope
      * @param name           stream name.
@@ -310,6 +312,21 @@ public interface StreamMetadataStore {
                                                 final Executor executor);
 
     /**
+     * Method to delete epoch if scale operation is ongoing.
+     * @param scope scope
+     * @param stream stream
+     * @param epoch epoch to delete
+     * @param context context
+     * @param executor executor
+     * @return returns a pair of segments sealed from deleted epoch and new segments added in new epoch
+     */
+    CompletableFuture<DeleteEpochResponse> tryDeleteEpochIfScaling(final String scope,
+                                                                   final String stream,
+                                                                   final long epoch,
+                                                                   final OperationContext context,
+                                                                   final Executor executor);
+
+    /**
      * Method to create a new transaction on a stream.
      *
      * @param scopeName        Scope
@@ -317,7 +334,7 @@ public interface StreamMetadataStore {
      * @param lease            Time for which transaction shall remain open with sending any heartbeat.
      * @param maxExecutionTime Maximum time for which client may extend txn lease.
      * @param scaleGracePeriod Maximum time for which client may extend txn lease once
-     *                         the scaling operation is initiated on the txn stream.
+     *                         the deleted operation is initiated on the txn stream.
      * @param context          operation context
      * @param executor         callers executor
      * @return Transaction data along with version information.

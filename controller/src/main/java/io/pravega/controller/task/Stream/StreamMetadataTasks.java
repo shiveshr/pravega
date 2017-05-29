@@ -1,12 +1,12 @@
 /**
  * Copyright (c) 2017 Dell Inc., or its subsidiaries.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,12 +15,22 @@
  */
 package io.pravega.controller.task.Stream;
 
+import io.pravega.client.ClientFactory;
+import io.pravega.client.netty.impl.ConnectionFactory;
+import io.pravega.client.stream.EventStreamWriter;
+import io.pravega.client.stream.EventWriterConfig;
+import io.pravega.client.stream.ScalingPolicy;
+import io.pravega.client.stream.StreamConfiguration;
+import io.pravega.client.stream.impl.ModelHelper;
 import io.pravega.common.ExceptionHelpers;
 import io.pravega.common.concurrent.FutureHelpers;
 import io.pravega.controller.server.SegmentHelper;
+import io.pravega.controller.server.eventProcessor.ControllerEventProcessors;
+import io.pravega.controller.server.eventProcessor.ScaleOpEvent;
 import io.pravega.controller.store.host.HostControllerStore;
 import io.pravega.controller.store.stream.DataNotFoundException;
 import io.pravega.controller.store.stream.OperationContext;
+import io.pravega.controller.store.stream.ScaleOperationExceptions;
 import io.pravega.controller.store.stream.Segment;
 import io.pravega.controller.store.stream.StoreException;
 import io.pravega.controller.store.stream.StreamMetadataStore;
@@ -34,21 +44,16 @@ import io.pravega.controller.stream.api.grpc.v1.Controller.SegmentRange;
 import io.pravega.controller.stream.api.grpc.v1.Controller.UpdateStreamStatus;
 import io.pravega.controller.task.Task;
 import io.pravega.controller.task.TaskBase;
-import io.pravega.client.netty.impl.ConnectionFactory;
-import io.pravega.client.stream.ScalingPolicy;
-import io.pravega.client.stream.StreamConfiguration;
-import io.pravega.client.stream.impl.ModelHelper;
+import io.pravega.shared.controller.event.ControllerEvent;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.Serializable;
 import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -69,24 +74,38 @@ public class StreamMetadataTasks extends TaskBase {
     private final HostControllerStore hostControllerStore;
     private final ConnectionFactory connectionFactory;
     private final SegmentHelper segmentHelper;
+    private final ClientFactory clientFactory;
+    private final String requestStreamName;
+    private final AtomicReference<EventStreamWriter<ControllerEvent>> requestEventWriterRef;
 
     public StreamMetadataTasks(final StreamMetadataStore streamMetadataStore,
                                final HostControllerStore hostControllerStore, final TaskMetadataStore taskMetadataStore,
                                final SegmentHelper segmentHelper, final ScheduledExecutorService executor, final String hostId,
                                final ConnectionFactory connectionFactory) {
         this(streamMetadataStore, hostControllerStore, taskMetadataStore, segmentHelper, executor, new Context(hostId),
-                connectionFactory);
+                connectionFactory, null, null);
+    }
+
+    public StreamMetadataTasks(final StreamMetadataStore streamMetadataStore,
+                               final HostControllerStore hostControllerStore, final TaskMetadataStore taskMetadataStore,
+                               final SegmentHelper segmentHelper, final ScheduledExecutorService executor, final String hostId,
+                               final ConnectionFactory connectionFactory, ClientFactory clientFactory, String requestStreamName) {
+        this(streamMetadataStore, hostControllerStore, taskMetadataStore, segmentHelper, executor, new Context(hostId),
+                connectionFactory, clientFactory, requestStreamName);
     }
 
     private StreamMetadataTasks(final StreamMetadataStore streamMetadataStore,
                                 final HostControllerStore hostControllerStore, final TaskMetadataStore taskMetadataStore,
                                 final SegmentHelper segmentHelper, final ScheduledExecutorService executor, final Context context,
-                                ConnectionFactory connectionFactory) {
+                                ConnectionFactory connectionFactory, ClientFactory clientFactory, String requestStreamName) {
         super(taskMetadataStore, executor, context);
         this.streamMetadataStore = streamMetadataStore;
         this.hostControllerStore = hostControllerStore;
         this.segmentHelper = segmentHelper;
         this.connectionFactory = connectionFactory;
+        this.clientFactory = clientFactory;
+        this.requestStreamName = requestStreamName;
+        this.requestEventWriterRef = new AtomicReference<>();
         this.setReady();
     }
 
@@ -165,18 +184,119 @@ public class StreamMetadataTasks extends TaskBase {
      * @param stream         stream name.
      * @param sealedSegments segments to be sealed.
      * @param newRanges      key ranges for new segments.
-     * @param scaleTimestamp scaling time stamp.
-     * @param contextOpt     optional context
+     * @param scaleTimestamp deleted time stamp.
+     * @param context        optional context
      * @return returns the newly created segments.
      */
-    public CompletableFuture<ScaleResponse> scale(String scope, String stream, ArrayList<Integer> sealedSegments,
-                                                  ArrayList<AbstractMap.SimpleEntry<Double, Double>> newRanges, long scaleTimestamp,
-                                                  OperationContext contextOpt) {
-        return scaleBody(scope, stream, sealedSegments, newRanges, scaleTimestamp, contextOpt);
+    public CompletableFuture<ScaleResponse> manualScale(String scope, String stream, List<Integer> sealedSegments,
+                                                        List<AbstractMap.SimpleEntry<Double, Double>> newRanges, long scaleTimestamp,
+                                                        OperationContext context) {
+        ScaleOpEvent event = new ScaleOpEvent(scope, stream, sealedSegments, newRanges, true, scaleTimestamp);
+        return postScale(event).thenCompose(x -> startScale(event, false, context)
+                .handle((newSegments, e) -> {
+                    ScaleResponse.Builder response = ScaleResponse.newBuilder();
+
+                    if (e != null) {
+                        Throwable cause = ExceptionHelpers.getRealException(e);
+                        if (cause instanceof ScaleOperationExceptions.ScaleInvalidException) {
+                            response.setStatus(ScaleResponse.ScaleStreamStatus.PRECONDITION_FAILED);
+                        } else {
+                            response.setStatus(ScaleResponse.ScaleStreamStatus.FAILURE);
+                        }
+                    } else {
+                        response.setStatus(ScaleResponse.ScaleStreamStatus.SUCCESS);
+                        response.addAllSegments(
+                                newSegments
+                                        .stream()
+                                        .map(segment -> convert(scope, stream, segment))
+                                        .collect(Collectors.toList()));
+                    }
+                    return response.build();
+                }));
+    }
+
+    /**
+     * Scales stream segments.
+     * @param event scale operation event
+     * @return returns the newly created segments.
+     */
+    public CompletableFuture<Void> postScale(ScaleOpEvent event) {
+        // if we are unable to post, throw a retryable exception.
+        CompletableFuture<Void> result = new CompletableFuture<>();
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                getRequestWriter().writeEvent(event).get();
+                result.complete(null);
+            } catch (Exception e) {
+                log.error("error sending request to requeststream {}", e);
+                if (e instanceof ScaleOperationExceptions.ScaleRequestDisabledException) {
+                    result.complete(null);
+                } else {
+                    result.completeExceptionally(new ScaleOperationExceptions.ScalePostException());
+                }
+            }
+        }, executor);
+        return result;
+    }
+
+    private EventStreamWriter<ControllerEvent> getRequestWriter() {
+        if (requestEventWriterRef.get() == null) {
+            if (clientFactory == null || requestStreamName == null) {
+                throw new ScaleOperationExceptions.ScaleRequestDisabledException();
+            }
+
+            requestEventWriterRef.set(clientFactory.createEventWriter(requestStreamName,
+                    ControllerEventProcessors.SCALE_EVENT_SERIALIZER,
+                    EventWriterConfig.builder().build()));
+        }
+
+        return requestEventWriterRef.get();
+    }
+
+    public CompletableFuture<List<Segment>> startScale(ScaleOpEvent scaleInput, boolean runOnlyIfStarted, OperationContext context) { // called upon event read from requeststream
+        return TaskStepsRetryHelper.withRetries(() -> streamMetadataStore.startScale(scaleInput.getScope(),
+                scaleInput.getStream(),
+                scaleInput.getSegmentsToSeal(),
+                scaleInput.getNewRanges(),
+                scaleInput.getScaleTime(),
+                runOnlyIfStarted,
+                context,
+                executor)
+                .thenCompose(response -> notifyNewSegments(scaleInput.getScope(), scaleInput.getStream(), response.getSegmentsCreated(), context)
+                        .thenCompose(x -> {
+                            assert !response.getSegmentsCreated().isEmpty();
+
+                            long scaleTs = response.getSegmentsCreated().get(0).getStart();
+
+                            return streamMetadataStore.scaleNewSegmentsCreated(scaleInput.getScope(), scaleInput.getStream(),
+                                    scaleInput.getSegmentsToSeal(), response.getSegmentsCreated(), scaleTs, context, executor);
+                        })
+                        .thenCompose(x -> tryCompleteScale(scaleInput.getScope(), scaleInput.getStream(), response.getCurrentEpoch(), context))
+                        .thenApply(y -> response.getSegmentsCreated())), executor);
+    }
+
+    public CompletableFuture<Boolean> tryCompleteScale(String scope, String stream, long epoch, OperationContext context) {
+        // Note: if we cant delete old epoch -- txns against old segments are ongoing..
+        // if we can delete old epoch, then only do we proceed to subsequent steps
+        return streamMetadataStore.tryDeleteEpochIfScaling(scope, stream, epoch, context, executor)
+                .thenCompose(response -> {
+                    if (!response.isDeleted()) {
+                        return CompletableFuture.completedFuture(true);
+                    }
+                    assert !response.getSegmentsCreated().isEmpty() && !response.getSegmentsSealed().isEmpty();
+
+                    long scaleTs = response.getSegmentsCreated().get(0).getStart();
+                    return notifySealedSegments(scope, stream, response.getSegmentsSealed())
+                            .thenCompose(y -> TaskStepsRetryHelper.withRetries(
+                                    () -> streamMetadataStore.scaleSegmentsSealed(scope, stream, response.getSegmentsSealed(),
+                                            response.getSegmentsCreated(), scaleTs, context, executor), executor)
+                                    .thenApply(z -> true));
+                });
     }
 
     private CompletableFuture<CreateStreamStatus.Status> createStreamBody(String scope, String stream,
-            StreamConfiguration config, long timestamp) {
+                                                                          StreamConfiguration config, long timestamp) {
         return this.streamMetadataStore.createStream(scope, stream, config, timestamp, null, executor)
                 .thenComposeAsync(created -> {
                     log.debug("{}/{} created in metadata store", scope, stream);
@@ -238,7 +358,7 @@ public class StreamMetadataTasks extends TaskBase {
                     } else {
                         return CompletableFuture.completedFuture(false);
                     }
-                })
+                }).thenCompose(x -> streamMetadataStore.setState(scope, stream, State.ACTIVE, context, executor))
                 .handle((result, ex) -> {
                     if (ex != null) {
                         return handleUpdateStreamError(ex);
@@ -252,7 +372,15 @@ public class StreamMetadataTasks extends TaskBase {
     CompletableFuture<UpdateStreamStatus.Status> sealStreamBody(String scope, String stream, OperationContext contextOpt) {
         final OperationContext context = contextOpt == null ? streamMetadataStore.createContext(scope, stream) : contextOpt;
 
-        return TaskStepsRetryHelper.withRetries(() -> streamMetadataStore.getActiveSegments(scope, stream, context, executor), executor)
+        return TaskStepsRetryHelper.withRetries(() -> streamMetadataStore.getState(scope, stream, context, executor)
+                .thenCompose(state -> {
+                    if (!state.equals(State.SEALED)) {
+                        return streamMetadataStore.setState(scope, stream, State.SEALING, context, executor);
+                    } else {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                })
+                .thenCompose(x -> streamMetadataStore.getActiveSegments(scope, stream, context, executor)), executor)
                 .thenCompose(activeSegments -> {
                     if (activeSegments.isEmpty()) { //if active segments are empty then the stream is sealed.
                         //Do not update the state if the stream is already sealed.
@@ -273,7 +401,8 @@ public class StreamMetadataTasks extends TaskBase {
                                     }
                                 });
                     }
-                }).exceptionally(this::handleUpdateStreamError);
+                })
+                .exceptionally(this::handleUpdateStreamError);
     }
 
     CompletableFuture<DeleteStreamStatus.Status> deleteStreamBody(final String scope, final String stream,
@@ -299,92 +428,6 @@ public class StreamMetadataTasks extends TaskBase {
                                                 }
                                             }, executor), executor);
                 }, executor).exceptionally(this::handleDeleteStreamError);
-    }
-
-    CompletableFuture<ScaleResponse> scaleBody(final String scope, final String stream, final List<Integer> segmentsToSeal,
-                                   final List<AbstractMap.SimpleEntry<Double, Double>> newRanges, final long scaleTimestamp,
-                                   final OperationContext contextOpt) {
-        // Abort scaling operation in the following error scenarios
-        // 1. if the active segments in the stream have ts greater than scaleTimestamp -- ScaleStreamStatus.PRECONDITION_FAILED
-        // 2. if active segments having creation timestamp as scaleTimestamp have different key ranges than the ones specified
-        // in newRanges
-        // 3. Transaction is active on the stream
-        // 4. sealedSegments should be a subset of activeSegments.
-        //
-        // If there is intermittent network issue before during precondition check (e.g. for metadata store reads) we will throw
-        // exception and fail the task.
-        // However, once preconditions pass and scale task starts, all steps are wrapped inside Retry block
-        // with exponential back offs. We will have significant number of retries (default: 100).
-        // This is because we dont have roll backs for scale operations. So once started, we should try to complete it by
-        // retrying against all intermittent failures.
-        // Also, we cant leave with intermediate failures as the system state will be inconsistent -
-        // for example: existing segments are sealed, but we are not able to create new segments in metadata store.
-        // So we need to retry and complete all steps.
-        // However, after sufficient retries, if we are still not able to complete all steps in scale task,
-        // we should stop retrying indefinitely and notify administrator.
-        final OperationContext context = contextOpt == null ? streamMetadataStore.createContext(scope, stream) : contextOpt;
-
-        CompletableFuture<Boolean> checkValidity = TaskStepsRetryHelper.withRetries(
-                () -> streamMetadataStore.getActiveSegments(scope, stream, context, executor), executor)
-                .thenApply(activeSegments -> {
-                    boolean result = false;
-                    Set<Integer> activeNum = activeSegments.stream().mapToInt(Segment::getNumber).boxed().collect(Collectors.toSet());
-                    if (activeNum.containsAll(segmentsToSeal)) {
-                        result = true;
-                    } else if (activeSegments.size() > 0 && activeSegments
-                            .stream()
-                            .mapToLong(Segment::getStart)
-                            .max()
-                            .getAsLong() == scaleTimestamp) {
-                        result = true;
-                    }
-                    return result;
-                });
-
-        return checkValidity.thenCompose(valid -> {
-            if (valid) {
-                // keep checking until no transactions are running.
-                CompletableFuture<Boolean> check = new CompletableFuture<>();
-                FutureHelpers.loop(() -> !check.isDone(), () -> TaskStepsRetryHelper.withRetries(() -> streamMetadataStore.isTransactionOngoing(scope, stream, context, executor)
-                        .thenAccept(txnOngoing -> {
-                            if (!txnOngoing) {
-                                check.complete(true);
-                            }
-                        }), executor), executor);
-                return check;
-            } else {
-                return CompletableFuture.completedFuture(false);
-            }
-        }).thenCompose(valid -> {
-                    if (valid) {
-                        return TaskStepsRetryHelper.withRetries(() -> streamMetadataStore.startScale(scope, stream, segmentsToSeal, newRanges, scaleTimestamp, context, executor), executor)
-                                .thenCompose((List<Segment> newSegments) -> notifyNewSegments(scope, stream, newSegments, context)
-                                        .thenApply((Void v) -> newSegments))
-                                .thenCompose(newSegments -> streamMetadataStore.scaleNewSegmentsCreated(scope, stream, segmentsToSeal,
-                                        newSegments, scaleTimestamp, context, executor).thenApply(v -> newSegments))
-                                .thenCompose(newSegments -> notifySealedSegments(scope, stream, segmentsToSeal)
-                                        .thenApply((Void v) -> newSegments))
-                                .thenCompose(newSegments ->
-                                        TaskStepsRetryHelper.withRetries(() -> streamMetadataStore.scaleSegmentsSealed(scope, stream, segmentsToSeal,
-                                                newSegments, scaleTimestamp, context, executor), executor).thenApply(x -> newSegments))
-                                .thenApply((List<Segment> newSegments) -> {
-                                    ScaleResponse.Builder response = ScaleResponse.newBuilder();
-                                    response.setStatus(ScaleResponse.ScaleStreamStatus.SUCCESS);
-                                    response.addAllSegments(
-                                            newSegments
-                                                    .stream()
-                                                    .map(segment -> convert(scope, stream, segment))
-                                                    .collect(Collectors.toList()));
-                                    return response.build();
-                                });
-                    } else {
-                        ScaleResponse.Builder response = ScaleResponse.newBuilder();
-                        response.setStatus(ScaleResponse.ScaleStreamStatus.PRECONDITION_FAILED);
-                        response.addAllSegments(Collections.emptyList());
-                        return CompletableFuture.completedFuture(response.build());
-                    }
-                }
-        );
     }
 
     private CompletableFuture<Void> notifyNewSegments(String scope, String stream, List<Segment> segmentNumbers, OperationContext context) {
@@ -494,7 +537,7 @@ public class StreamMetadataTasks extends TaskBase {
                 segmentHelper,
                 executor,
                 context,
-                connectionFactory);
+                connectionFactory, clientFactory, requestStreamName);
     }
 
     @Override

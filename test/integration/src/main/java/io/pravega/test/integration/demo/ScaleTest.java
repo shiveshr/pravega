@@ -125,7 +125,7 @@ public class ScaleTest {
         statusFuture.get();
         future.get();
 
-        log.info("All scaling test PASSED");
+        log.info("All deleted test PASSED");
 
         System.exit(0);
     }

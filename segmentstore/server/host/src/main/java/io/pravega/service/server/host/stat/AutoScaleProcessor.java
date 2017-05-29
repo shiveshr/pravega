@@ -118,7 +118,10 @@ public class AutoScaleProcessor {
         // We are introducing a delay to avoid exceptions in the log in case creation of writer is attempted before
         // creation of requeststream.
         maintenanceExecutor.schedule(() -> Retry.indefinitelyWithExpBackoff(100, 10, 10000,
-                e -> log.error("error while creating writer for requeststream {}", e))
+                e -> {
+                    log.warn("error while creating writer for requeststream");
+                    log.debug("error while creating writer for requeststream {}", e);
+                })
                 .runAsync(() -> {
                     if (clientFactory.get() == null) {
                         clientFactory.compareAndSet(null, ClientFactory.withScope(NameUtils.INTERNAL_SCOPE_NAME, configuration.getControllerUri()));
@@ -132,7 +135,7 @@ public class AutoScaleProcessor {
                     // caches do not perform clean up if there is no activity. This is because they do not maintain their
                     // own background thread.
                     maintenanceExecutor.scheduleAtFixedRate(cache::cleanUp, 0, configuration.getCacheCleanup().getSeconds(), TimeUnit.SECONDS);
-                    log.debug("bootstrapping auto-scale reporter done");
+                    log.info("bootstrapping auto-scale reporter done");
                     createWriter.complete(null);
                     return createWriter;
                 }, maintenanceExecutor), 10, TimeUnit.SECONDS);
@@ -150,7 +153,7 @@ public class AutoScaleProcessor {
             long timestamp = System.currentTimeMillis();
 
             if (timestamp - lastRequestTs > configuration.getMuteDuration().toMillis()) {
-                log.debug("sending request for scale up for {}", streamSegmentName);
+                log.info("sending request for scale up for {}", streamSegmentName);
 
                 Segment segment = Segment.fromScopedName(streamSegmentName);
                 AutoScaleEvent event = new AutoScaleEvent(segment.getScope(), segment.getStreamName(), segment.getSegmentNumber(), AutoScaleEvent.UP, timestamp, numOfSplits, false);
@@ -171,7 +174,7 @@ public class AutoScaleProcessor {
 
             long timestamp = System.currentTimeMillis();
             if (timestamp - lastRequestTs > configuration.getMuteDuration().toMillis()) {
-                log.debug("sending request for scale down for {}", streamSegmentName);
+                log.info("sending request for scale down for {}", streamSegmentName);
 
                 Segment segment = Segment.fromScopedName(streamSegmentName);
                 AutoScaleEvent event = new AutoScaleEvent(segment.getScope(), segment.getStreamName(),

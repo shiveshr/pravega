@@ -89,7 +89,7 @@ public class ConcurrentEventProcessorTest {
 
     AtomicInteger runningcount = new AtomicInteger(0);
 
-    @Test(timeout = 100000)
+    @Test(timeout = 10000)
     public void testConcurrentEventProcessor() throws InterruptedException, ExecutionException {
         processor = new ConcurrentEventProcessor<>(new TestRequestHandler(), 2, Executors.newScheduledThreadPool(2),
                 pos -> {
@@ -124,4 +124,8 @@ public class ConcurrentEventProcessorTest {
         assertTrue(FutureHelpers.await(result));
         processor.afterStop();
     }
+
+    // create a concurrent event processor.. give it some requesthandler that keeps throwing retryableException
+    // ensure that after '5' retries, event processor posts the event back
+
 }
