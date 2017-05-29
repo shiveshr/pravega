@@ -68,39 +68,36 @@ public class StreamMetadataTasks extends TaskBase {
     private final HostControllerStore hostControllerStore;
     private final ConnectionFactory connectionFactory;
     private final SegmentHelper segmentHelper;
-    private final ClientFactory clientFactory;
-    private final String requestStreamName;
-    private final AtomicReference<EventStreamWriter<ControllerEvent>> requestEventWriterRef;
+    private ClientFactory clientFactory;
+    private String requestStreamName;
+    private final AtomicReference<EventStreamWriter<ControllerEvent>> requestEventWriterRef = new AtomicReference<>();
 
     public StreamMetadataTasks(final StreamMetadataStore streamMetadataStore,
                                final HostControllerStore hostControllerStore, final TaskMetadataStore taskMetadataStore,
                                final SegmentHelper segmentHelper, final ScheduledExecutorService executor, final String hostId,
                                final ConnectionFactory connectionFactory) {
         this(streamMetadataStore, hostControllerStore, taskMetadataStore, segmentHelper, executor, new Context(hostId),
-                connectionFactory, null, null);
-    }
-
-    public StreamMetadataTasks(final StreamMetadataStore streamMetadataStore,
-                               final HostControllerStore hostControllerStore, final TaskMetadataStore taskMetadataStore,
-                               final SegmentHelper segmentHelper, final ScheduledExecutorService executor, final String hostId,
-                               final ConnectionFactory connectionFactory, ClientFactory clientFactory, String requestStreamName) {
-        this(streamMetadataStore, hostControllerStore, taskMetadataStore, segmentHelper, executor, new Context(hostId),
-                connectionFactory, clientFactory, requestStreamName);
+                connectionFactory);
     }
 
     private StreamMetadataTasks(final StreamMetadataStore streamMetadataStore,
                                 final HostControllerStore hostControllerStore, final TaskMetadataStore taskMetadataStore,
                                 final SegmentHelper segmentHelper, final ScheduledExecutorService executor, final Context context,
-                                ConnectionFactory connectionFactory, ClientFactory clientFactory, String requestStreamName) {
+                                ConnectionFactory connectionFactory) {
         super(taskMetadataStore, executor, context);
         this.streamMetadataStore = streamMetadataStore;
         this.hostControllerStore = hostControllerStore;
         this.segmentHelper = segmentHelper;
         this.connectionFactory = connectionFactory;
-        this.clientFactory = clientFactory;
-        this.requestStreamName = requestStreamName;
-        this.requestEventWriterRef = new AtomicReference<>();
         this.setReady();
+    }
+
+    public Void initializeStreamWriters(final ClientFactory clientFactory,
+                                        final String streamName) {
+        this.requestStreamName = streamName;
+        this.clientFactory = clientFactory;
+
+        return null;
     }
 
     /**
@@ -224,7 +221,7 @@ public class StreamMetadataTasks extends TaskBase {
                 result.complete(null);
             } catch (Exception e) {
                 log.error("error sending request to requeststream {}", e);
-                if (e instanceof ScaleOperationExceptions.ScaleRequestDisabledException) {
+                if (e instanceof ScaleOperationExceptions.ScaleRequestNotEnabledException) {
                     result.complete(null);
                 } else {
                     result.completeExceptionally(new ScaleOperationExceptions.ScalePostException());
@@ -237,7 +234,7 @@ public class StreamMetadataTasks extends TaskBase {
     private EventStreamWriter<ControllerEvent> getRequestWriter() {
         if (requestEventWriterRef.get() == null) {
             if (clientFactory == null || requestStreamName == null) {
-                throw new ScaleOperationExceptions.ScaleRequestDisabledException();
+                throw new ScaleOperationExceptions.ScaleRequestNotEnabledException();
             }
 
             requestEventWriterRef.set(clientFactory.createEventWriter(requestStreamName,
@@ -531,7 +528,7 @@ public class StreamMetadataTasks extends TaskBase {
                 segmentHelper,
                 executor,
                 context,
-                connectionFactory, clientFactory, requestStreamName);
+                connectionFactory);
     }
 
     @Override

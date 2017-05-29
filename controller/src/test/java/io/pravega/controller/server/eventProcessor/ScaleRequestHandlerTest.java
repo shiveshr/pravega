@@ -34,6 +34,7 @@ import io.pravega.controller.store.task.TaskMetadataStore;
 import io.pravega.controller.store.task.TaskStoreFactory;
 import io.pravega.controller.task.Stream.StreamMetadataTasks;
 import io.pravega.controller.task.Stream.StreamTransactionMetadataTasks;
+import io.pravega.controller.util.Config;
 import io.pravega.shared.controller.event.AutoScaleEvent;
 import io.pravega.shared.controller.event.ControllerEvent;
 import io.pravega.test.common.TestingServerStarter;
@@ -112,7 +113,8 @@ public class ScaleRequestHandlerTest {
         connectionFactory = new ConnectionFactoryImpl(false);
         clientFactory = mock(ClientFactory.class);
         streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore, segmentHelper,
-                executor, hostId, connectionFactory, clientFactory, "requeststream");
+                executor, hostId, connectionFactory);
+        streamMetadataTasks.initializeStreamWriters(clientFactory, Config.SCALE_STREAM_NAME);
         streamTransactionMetadataTasks = new StreamTransactionMetadataTasks(streamStore, hostStore, taskMetadataStore,
                 segmentHelper, executor, hostId, connectionFactory);
 
@@ -162,7 +164,7 @@ public class ScaleRequestHandlerTest {
             }
         });
 
-        when(clientFactory.createEventWriter(eq("requeststream"), eq(new JavaSerializer<ControllerEvent>()), any())).thenReturn(writer);
+        when(clientFactory.createEventWriter(eq(Config.SCALE_STREAM_NAME), eq(new JavaSerializer<ControllerEvent>()), any())).thenReturn(writer);
 
         assertTrue(FutureHelpers.await(multiplexer.process(request)));
         assertTrue(FutureHelpers.await(request1));

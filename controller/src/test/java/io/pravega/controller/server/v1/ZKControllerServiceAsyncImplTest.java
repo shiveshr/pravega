@@ -87,7 +87,7 @@ public class ZKControllerServiceAsyncImplTest extends ControllerServiceImplTest 
 
         ConnectionFactoryImpl connectionFactory = new ConnectionFactoryImpl(false);
         streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore, segmentHelper,
-                executorService, "host", connectionFactory, null, null);
+                executorService, "host", connectionFactory);
 
         streamTransactionMetadataTasks = new MockStreamTransactionMetadataTasks(
                 streamStore, hostStore, taskMetadataStore, segmentHelper, executorService, "host", connectionFactory);

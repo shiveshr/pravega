@@ -88,7 +88,7 @@ public class ControllerServiceTest {
         SegmentHelper segmentHelper = SegmentHelperMock.getSegmentHelperMock();
         connectionFactory = new ConnectionFactoryImpl(false);
         streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore,
-                taskMetadataStore, segmentHelper, executor, "host", connectionFactory, null, null);
+                taskMetadataStore, segmentHelper, executor, "host", connectionFactory);
         streamTransactionMetadataTasks = new StreamTransactionMetadataTasks(streamStore,
                 hostStore, taskMetadataStore, segmentHelper, executor, "host", connectionFactory);
         timeoutService = new TimerWheelTimeoutService(streamTransactionMetadataTasks,

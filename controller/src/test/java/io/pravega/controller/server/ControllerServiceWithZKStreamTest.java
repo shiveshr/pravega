@@ -151,7 +151,7 @@ public class ControllerServiceWithZKStreamTest {
         SegmentHelper segmentHelperMock = SegmentHelperMock.getSegmentHelperMock();
         connectionFactory = new ConnectionFactoryImpl(false);
         streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore, segmentHelperMock,
-                executor, "host", connectionFactory, null, null);
+                executor, "host", connectionFactory);
         streamTransactionMetadataTasks = new StreamTransactionTasksMock(streamStore, hostStore, taskMetadataStore,
                 segmentHelperMock, executor, "host", connectionFactory);
         streamTransactionMetadataTasks.initializeWriters(getWriteResultSequence(5), getWriteResultSequence(5));

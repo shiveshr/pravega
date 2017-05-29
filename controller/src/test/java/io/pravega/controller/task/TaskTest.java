@@ -132,7 +132,7 @@ public class TaskTest {
         segmentHelperMock = SegmentHelperMock.getSegmentHelperMock();
 
         streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore, segmentHelperMock,
-                executor, HOSTNAME, new ConnectionFactoryImpl(false), null, null);
+                executor, HOSTNAME, new ConnectionFactoryImpl(false));
     }
 
     @Before
@@ -292,7 +292,7 @@ public class TaskTest {
 
         // Create objects.
         StreamMetadataTasks mockStreamTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore,
-                segmentHelperMock, executor, deadHost, Mockito.mock(ConnectionFactory.class), null, null);
+                segmentHelperMock, executor, deadHost, Mockito.mock(ConnectionFactory.class));
         mockStreamTasks.setCreateIndexOnlyMode();
         TaskSweeper sweeper = new TaskSweeper(taskMetadataStore, HOSTNAME, executor, streamMetadataTasks);
 

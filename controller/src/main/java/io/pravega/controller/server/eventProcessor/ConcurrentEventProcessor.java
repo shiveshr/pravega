@@ -1,24 +1,24 @@
 /**
  * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
  */
 package io.pravega.controller.server.eventProcessor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import io.pravega.client.stream.AckFuture;
+import io.pravega.client.stream.Position;
 import io.pravega.common.ExceptionHelpers;
-import io.pravega.common.concurrent.FutureHelpers;
 import io.pravega.common.util.RetriesExhaustedException;
 import io.pravega.common.util.Retry;
 import io.pravega.controller.eventProcessor.impl.EventProcessor;
 import io.pravega.controller.retryable.RetryableException;
 import io.pravega.shared.controller.event.ControllerEvent;
-import io.pravega.client.stream.Position;
 import lombok.AllArgsConstructor;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +28,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
@@ -54,6 +55,12 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
             .withExpBackoff(RETRY_INITIAL_DELAY, RETRY_MULTIPLIER, RETRY_MAX_ATTEMPTS, RETRY_MAX_DELAY)
             .retryWhen(RetryableException::isRetryable)
             .throwingOn(RuntimeException.class);
+    private static final Retry.RetryUnconditionally UNCONDITIONALLY = Retry
+        .indefinitelyWithExpBackoff(RETRY_INITIAL_DELAY, RETRY_MULTIPLIER, RETRY_MAX_DELAY,
+            e -> {
+                log.warn("error while writing event back into stream");
+                log.debug("error while writing event back into stream {}", e);
+            });
 
     private static final int MAX_CONCURRENT = 10000;
     private static final PositionCounter MAX = new PositionCounter(null, Long.MAX_VALUE);
@@ -69,10 +76,11 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
     private final Semaphore semaphore;
     private final ScheduledFuture periodicCheckpoint;
     private final Checkpointer checkpointer;
+    private final EventProcessor.Writer<R> internalWriter;
 
     public ConcurrentEventProcessor(final H requestHandler,
                                     final ScheduledExecutorService executor) {
-        this(requestHandler, MAX_CONCURRENT, executor, null, 1, TimeUnit.MINUTES);
+        this(requestHandler, MAX_CONCURRENT, executor, null, null, 1, TimeUnit.MINUTES);
     }
 
     @VisibleForTesting
@@ -80,6 +88,7 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
                              final int maxConcurrent,
                              final ScheduledExecutorService executor,
                              final Checkpointer checkpointer,
+                             final EventProcessor.Writer<R> writer,
                              final long checkpointPeriod,
                              final TimeUnit timeUnit) {
         Preconditions.checkNotNull(requestHandler);
@@ -90,9 +99,9 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
         completed = new ConcurrentSkipListSet<>(positionCounterComparator);
         this.checkpointer = checkpointer;
         this.checkpoint = new AtomicReference<>();
-
+        this.internalWriter = writer;
         this.executor = executor;
-        periodicCheckpoint = this.executor.scheduleAtFixedRate(this::periodicCheckpointing, 0, checkpointPeriod, timeUnit);
+        periodicCheckpoint = this.executor.scheduleAtFixedRate(this::periodicCheckpoint, 0, checkpointPeriod, timeUnit);
         semaphore = new Semaphore(maxConcurrent);
     }
 
@@ -110,25 +119,19 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
             // In case of a retryable exception, retry few times before putting the event back into event stream.
             withRetries(() -> requestHandler.process(request), executor)
                     .whenCompleteAsync((r, e) -> {
+                        CompletableFuture<Void> future;
                         if (e != null) {
                             log.warn("ConcurrentEventProcessor Processing failed");
-                            Throwable cause;
-                            if (e instanceof RetriesExhaustedException) {
-                                cause = e.getCause();
-                            } else {
-                                cause = ExceptionHelpers.getRealException(e);
-                            }
-
-                            if (RetryableException.isRetryable(cause)) {
-                                FutureHelpers.getAndHandleExceptions(getSelfWriter().write(request), RuntimeException::new);
-                            } else {
-                                log.error("ConcurrentEventProcessor Processing failed {}", e);
-                            }
+                            future = handleProcessingError(request, e);
+                        } else {
+                            log.debug("ConcurrentEventProcessor Processing complete");
+                            future = CompletableFuture.completedFuture(null);
                         }
 
-                        checkpoint(pc);
-                        semaphore.release();
-
+                        future.thenAcceptAsync(x -> {
+                            checkpoint(pc);
+                            semaphore.release();
+                        }, executor);
                     }, executor);
         } else {
             // note: Since stop was requested we will not do any processing on new event.
@@ -136,6 +139,53 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
             // And since this class does its own checkpointing, so we are not updating our last checkpoint.
             log.info("processing requested after processor is stopped");
         }
+    }
+
+    private CompletableFuture<Void> handleProcessingError(R request, Throwable e) {
+        CompletableFuture<Void> future;
+        Throwable cause;
+        if (e instanceof RetriesExhaustedException) {
+            cause = e.getCause();
+        } else {
+            cause = ExceptionHelpers.getRealException(e);
+        }
+
+        if (RetryableException.isRetryable(cause)) {
+            log.info("ConcurrentEventProcessor Processing failed, putting the event back");
+
+            future = indefiniteRetries(() -> writeBack(request), executor);
+        } else {
+            log.error("ConcurrentEventProcessor Processing failed, exiting {}", e);
+            future = CompletableFuture.completedFuture(null);
+        }
+
+        return future;
+    }
+
+    private CompletableFuture<Void> writeBack(R request) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+
+        Writer<R> writer;
+        if (internalWriter != null) {
+            writer = internalWriter;
+        } else if (getSelfWriter() != null) {
+            writer = getSelfWriter();
+        } else {
+            result.complete(null);
+            return result;
+        }
+
+        AckFuture future = writer.write(request);
+        future.addListener(() -> {
+            try {
+                future.get();
+                result.complete(null);
+            } catch (Exception e) {
+                result.completeExceptionally(e);
+            }
+        }, Executors.newSingleThreadExecutor());
+
+        return result;
     }
 
     @Override
@@ -171,7 +221,7 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
         }
     }
 
-    private void periodicCheckpointing() {
+    private void periodicCheckpoint() {
         try {
             if (checkpoint.get() != null && checkpoint.get().position != null) {
                 if (checkpointer != null) {
@@ -187,6 +237,10 @@ public class ConcurrentEventProcessor<R extends ControllerEvent, H extends Reque
 
     private <U> CompletableFuture<U> withRetries(Supplier<CompletableFuture<U>> futureSupplier, ScheduledExecutorService executor) {
         return RETRY.runAsync(futureSupplier, executor);
+    }
+
+    private <U> CompletableFuture<U> indefiniteRetries(Supplier<CompletableFuture<U>> futureSupplier, ScheduledExecutorService executor) {
+        return UNCONDITIONALLY.runAsync(futureSupplier, executor);
     }
 
     @AllArgsConstructor

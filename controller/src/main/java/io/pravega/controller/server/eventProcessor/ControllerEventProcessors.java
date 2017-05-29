@@ -229,10 +229,12 @@ public class ControllerEventProcessors extends AbstractIdleService {
                         executor));
     }
 
-    public CompletableFuture<Void> bootstrap(final StreamTransactionMetadataTasks streamTransactionMetadataTasks) {
+    public CompletableFuture<Void> bootstrap(final StreamTransactionMetadataTasks streamTransactionMetadataTasks, StreamMetadataTasks streamMetadataTasks) {
         log.info("Bootstrapping controller event processors");
-        return createStreams().thenAcceptAsync(x ->
-                streamTransactionMetadataTasks.initializeStreamWriters(clientFactory, config), executor);
+        return createStreams().thenAcceptAsync(x -> {
+            streamMetadataTasks.initializeStreamWriters(clientFactory, config.getRequestStreamName());
+            streamTransactionMetadataTasks.initializeStreamWriters(clientFactory, config);
+        }, executor);
     }
 
     public CompletableFuture<Void> handleOrphanedReaders(final Supplier<Set<String>> processes) {

@@ -102,7 +102,7 @@ public class TimeoutServiceTest {
 
         ConnectionFactoryImpl connectionFactory = new ConnectionFactoryImpl(false);
         streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore,
-                new SegmentHelper(), executor, hostId, connectionFactory, null, null);
+                new SegmentHelper(), executor, hostId, connectionFactory);
         streamTransactionMetadataTasks = new MockStreamTransactionMetadataTasks(streamStore,
                 hostStore, taskMetadataStore, new SegmentHelper(), executor, hostId, connectionFactory);
 

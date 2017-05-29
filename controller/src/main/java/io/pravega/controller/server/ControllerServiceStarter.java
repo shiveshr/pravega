@@ -11,7 +11,6 @@ package io.pravega.controller.server;
 
 import io.pravega.client.netty.impl.ConnectionFactory;
 import io.pravega.client.netty.impl.ConnectionFactoryImpl;
-import io.pravega.client.stream.impl.ClientFactoryImpl;
 import io.pravega.common.LoggerHelpers;
 import io.pravega.common.cluster.Cluster;
 import io.pravega.common.cluster.ClusterType;
@@ -164,19 +163,9 @@ public class ControllerServiceStarter extends AbstractIdleService {
             connectionFactory = new ConnectionFactoryImpl(false);
             SegmentHelper segmentHelper = new SegmentHelper();
 
-            if (serviceConfig.getEventProcessorConfig().isPresent()) {
-                ClientFactoryImpl clientFactory = new ClientFactoryImpl(serviceConfig.getEventProcessorConfig().get().getScopeName(),
-                        localController, connectionFactory);
+            streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore,
+                    segmentHelper, taskExecutor, host.getHostId(), connectionFactory);
 
-                String requestStreamName = serviceConfig.getEventProcessorConfig().get().getRequestStreamName();
-
-                streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore,
-                        segmentHelper, taskExecutor, host.getHostId(), connectionFactory, clientFactory,
-                        requestStreamName);
-            } else {
-                streamMetadataTasks = new StreamMetadataTasks(streamStore, hostStore, taskMetadataStore,
-                        segmentHelper, taskExecutor, host.getHostId(), connectionFactory);
-            }
             streamTransactionMetadataTasks = new StreamTransactionMetadataTasks(streamStore,
                     hostStore, taskMetadataStore, segmentHelper, taskExecutor, host.getHostId(), connectionFactory);
             timeoutService = new TimerWheelTimeoutService(streamTransactionMetadataTasks,
@@ -224,7 +213,7 @@ public class ControllerServiceStarter extends AbstractIdleService {
 
                 // Bootstrap and start it asynchronously.
                 log.info("Starting event processors");
-                controllerEventProcessors.bootstrap(streamTransactionMetadataTasks)
+                controllerEventProcessors.bootstrap(streamTransactionMetadataTasks, streamMetadataTasks)
                         .thenAcceptAsync(x -> controllerEventProcessors.startAsync(), eventProcExecutor);
             }
 
