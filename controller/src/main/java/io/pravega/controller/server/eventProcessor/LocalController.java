@@ -180,7 +180,7 @@ public class LocalController implements Controller {
                         throw new ControllerFailureException("Controller failed to properly abort transactions on stream: "
                                 + stream);
                     default:
-                        throw new ControllerFailureException("Unknown return status deleted stream "
+                        throw new ControllerFailureException("Unknown return status scaling stream "
                                 + stream + " " + x.getStatus());
                     }
                 });

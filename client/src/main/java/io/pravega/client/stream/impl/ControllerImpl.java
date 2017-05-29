@@ -273,7 +273,7 @@ public class ControllerImpl implements Controller {
                         + stream);
             case UNRECOGNIZED:
             default:
-                throw new ControllerFailureException("Unknown return status deleted stream " + stream
+                throw new ControllerFailureException("Unknown return status scaling stream " + stream
                                                      + " " + x.getStatus());
             }
         }).whenComplete((x, e) -> {

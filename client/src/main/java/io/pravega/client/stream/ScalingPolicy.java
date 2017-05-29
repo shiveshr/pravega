@@ -26,7 +26,7 @@ public class ScalingPolicy implements Serializable {
 
     public enum Type {
         /**
-         * No deleted, there will only ever be {@link ScalingPolicy#minNumSegments} at any given time.
+         * No scaling, there will only ever be {@link ScalingPolicy#minNumSegments} at any given time.
          */
         FIXED_NUM_SEGMENTS,
         /**

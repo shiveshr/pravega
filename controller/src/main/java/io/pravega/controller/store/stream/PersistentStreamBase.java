@@ -304,7 +304,7 @@ public abstract class PersistentStreamBase<T> implements Stream {
      * 1. Add new segment information in segment table.
      *
      * @param newRanges      key ranges of new segments to be created
-     * @param scaleTimestamp deleted timestamp
+     * @param scaleTimestamp scaling timestamp
      * @param runOnlyIfStarted run only if the scale operation was started.
      * @return : list of newly created segments
      */
