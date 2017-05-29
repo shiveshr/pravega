@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -7,20 +7,19 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 // Apply the java plugin to add support for Java
 buildscript {
     repositories {
         jcenter()
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
     }
     dependencies {
         classpath group: 'com.google.protobuf', name:'protobuf-gradle-plugin', version: protobufGradlePlugin
+        classpath "gradle.plugin.org.nosphere.apache:creadur-rat-gradle:0.3.0"
     }
 }
 
@@ -41,6 +40,7 @@ allprojects {
     apply from: "$rootDir/gradle/java.gradle"
     apply from: "$rootDir/gradle/maven.gradle"
     apply from: "$rootDir/gradle/protobuf.gradle"
+    apply from: "$rootDir/gradle/rat.gradle"
 
     repositories {
         jcenter()
@@ -74,6 +74,7 @@ project('common') {
         }
     }
 }
+
 
 project ('shared') {
     dependencies {
@@ -201,7 +202,7 @@ project('segmentstore:server') {
 project('segmentstore:server:host') {
     apply plugin: 'application'
     applicationName = "pravega-segmentstore"
-    mainClassName = "io.pravega.service.server.host.ServiceStarter"
+    mainClassName = "io.pravega.segmentstore.server.host.ServiceStarter"
 
     applicationDefaultJvmArgs = ["-server", "-Xms512m", "-XX:+HeapDumpOnOutOfMemoryError",
                                  "-Dlog.dir=PRAVEGA_APP_HOME/logs",
@@ -252,19 +253,19 @@ project('test:integration') {
     }
 
     task startServer(type: JavaExec) {
-        main = "io.pravega.service.server.host.ServiceStarter"
+        main = "io.pravega.segmentstore.server.host.ServiceStarter"
         classpath = sourceSets.main.runtimeClasspath
         standardInput = System.in
     }
 
     task startServerInteractive(type: JavaExec) {
-        main = "io.pravega.service.server.host.InteractiveStreamSegmentStoreTester"
+        main = "io.pravega.segmentstore.server.host.InteractiveStreamSegmentStoreTester"
         classpath = sourceSets.main.runtimeClasspath
         standardInput = System.in
     }
 
     task startBenchmark(type: JavaExec) {
-        main = "io.pravega.service.server.host.ServiceBenchmark"
+        main = "io.pravega.segmentstore.server.host.ServiceBenchmark"
         classpath = sourceSets.main.runtimeClasspath
         standardInput = System.in
     }
@@ -408,7 +409,7 @@ project('standalone') {
         classpath = sourceSets.main.runtimeClasspath
         systemProperties System.getProperties()
         systemProperties 'logback.configurationFile' : new File('config/logback.xml').absolutePath
-        jvmArgs "-Xdebug", "-Xrunjdwp:server=y,transport=dt_socket,address=8000,suspend=y"
+        jvmArgs "-Xdebug", "-Xrunjdwp:server=y,transport=dt_socket,address=8000,suspend=n"
     }
 }
 

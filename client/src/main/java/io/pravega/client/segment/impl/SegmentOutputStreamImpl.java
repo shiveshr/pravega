@@ -1,17 +1,11 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.client.segment.impl;
 
@@ -22,6 +16,10 @@ import io.pravega.client.netty.impl.ConnectionFactory;
 import io.pravega.client.stream.impl.Controller;
 import io.pravega.client.stream.impl.PendingEvent;
 import io.pravega.common.Exceptions;
+import io.pravega.common.concurrent.FutureHelpers;
+import io.pravega.common.util.Retry;
+import io.pravega.common.util.Retry.RetryWithBackoff;
+import io.pravega.common.util.ReusableLatch;
 import io.pravega.shared.protocol.netty.Append;
 import io.pravega.shared.protocol.netty.ConnectionFailedException;
 import io.pravega.shared.protocol.netty.FailingReplyProcessor;
@@ -34,9 +32,6 @@ import io.pravega.shared.protocol.netty.WireCommands.NoSuchSegment;
 import io.pravega.shared.protocol.netty.WireCommands.SegmentIsSealed;
 import io.pravega.shared.protocol.netty.WireCommands.SetupAppend;
 import io.pravega.shared.protocol.netty.WireCommands.WrongHost;
-import io.pravega.common.util.Retry;
-import io.pravega.common.util.Retry.RetryWithBackoff;
-import io.pravega.common.util.ReusableLatch;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -66,7 +61,7 @@ import static io.pravega.common.concurrent.FutureHelpers.getAndHandleExceptions;
  */
 @RequiredArgsConstructor
 @Slf4j
-@ToString(of = {"segmentName", "connectionId", "state"})
+@ToString(of = {"segmentName", "writerId", "state"})
 class SegmentOutputStreamImpl implements SegmentOutputStream {
 
     private static final RetryWithBackoff RETRY_SCHEDULE = Retry.withExpBackoff(1, 10, 5);
@@ -75,7 +70,7 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
     private final Controller controller;
     private final ConnectionFactory connectionFactory;
     private final Supplier<Long> requestIdGenerator = new AtomicLong(0)::incrementAndGet;
-    private final UUID connectionId;
+    private final UUID writerId;
     private final State state = new State();
     private final ResponseProcessor responseProcessor = new ResponseProcessor();
 
@@ -112,9 +107,17 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
                     emptyInflightFuture = new CompletableFuture<Void>();
                     if (inflight.isEmpty()) {
                         emptyInflightFuture.complete(null);
+                    } else if (exception != null) {
+                        emptyInflightFuture.completeExceptionally(exception);
                     }
                 }
                 return emptyInflightFuture;
+            }
+        }
+        
+        private boolean isAlreadySealed() {
+            synchronized (lock) {
+                return connection == null && exception != null && exception instanceof SegmentSealedException;
             }
         }
 
@@ -163,7 +166,7 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
                     log.warn("Connection failed due to: {}", e.getMessage());
                 }
                 if (emptyInflightFuture != null) {
-                    emptyInflightFuture.completeExceptionally(e);
+                    emptyInflightFuture.completeExceptionally(exception);
                 }
             }
             connectionSetupComplete();
@@ -295,7 +298,7 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
             ackUpTo(ackLevel);
             List<Append> toRetransmit = state.getAllInflight()
                                              .stream()
-                                             .map(entry -> new Append(segmentName, connectionId, entry.getKey(),
+                                             .map(entry -> new Append(segmentName, writerId, entry.getKey(),
                                                                       Unpooled.wrappedBuffer(entry.getValue()
                                                                                                   .getData()),
                                                                       entry.getValue().getExpectedOffset()))
@@ -344,7 +347,7 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
         ClientConnection connection = getConnection();
         long eventNumber = state.addToInflight(event);
         try {
-            connection.send(new Append(segmentName, connectionId, eventNumber, Unpooled.wrappedBuffer(event.getData()),
+            connection.send(new Append(segmentName, writerId, eventNumber, Unpooled.wrappedBuffer(event.getData()),
                                        event.getExpectedOffset()));
         } catch (ConnectionFailedException e) {
             log.warn("Connection failed due to: ", e);
@@ -358,6 +361,9 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
     @Synchronized
     ClientConnection getConnection() throws SegmentSealedException {
         checkState(!state.isClosed(), "LogOutputStream was already closed");
+        if (state.isAlreadySealed()) {
+            throw new SegmentSealedException();
+        }
         return RETRY_SCHEDULE.retryingOn(ConnectionFailedException.class).throwingOn(SegmentSealedException.class).run(() -> {
             setupConnection();
             return state.waitForConnection();
@@ -374,7 +380,7 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
                 });
             ClientConnection connection = getAndHandleExceptions(newConnection, ConnectionFailedException::new);
             state.newConnection(connection);
-            SetupAppend cmd = new SetupAppend(requestIdGenerator.get(), connectionId, segmentName);
+            SetupAppend cmd = new SetupAppend(requestIdGenerator.get(), writerId, segmentName);
             connection.send(cmd);
         }
     }
@@ -408,7 +414,8 @@ class SegmentOutputStreamImpl implements SegmentOutputStream {
                           .run(() -> {
                               ClientConnection connection = getConnection();
                               connection.send(new KeepAlive());
-                              state.getEmptyInflightFuture().get();
+                              FutureHelpers.<Void, ConnectionFailedException, SegmentSealedException, RuntimeException>
+                                  getThowingException(state.getEmptyInflightFuture());
                               return null;
                           });
         }

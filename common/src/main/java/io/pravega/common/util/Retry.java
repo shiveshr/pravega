@@ -1,35 +1,28 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.common.util;
 
+import com.google.common.base.Preconditions;
+import io.pravega.common.ExceptionHelpers;
 import io.pravega.common.Exceptions;
 import io.pravega.common.concurrent.FutureHelpers;
-import com.google.common.base.Preconditions;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * A Utility class to support retrying something that can fail with exponential backoff.
@@ -254,14 +247,10 @@ public final class Retry {
         }
 
         private Class<? extends Throwable> getErrorType(final Throwable e) {
-            if (retryType.equals(CompletionException.class) || throwType.equals(CompletionException.class)) {
+            if (ExceptionHelpers.shouldUnwrap(retryType) || ExceptionHelpers.shouldUnwrap(throwType)) {
                 return e.getClass();
             } else {
-                if (e instanceof CompletionException && e.getCause() != null) {
-                    return e.getCause().getClass();
-                } else {
-                    return e.getClass();
-                }
+                return ExceptionHelpers.unwrapIfRequired(e).getClass();
             }
         }
     }

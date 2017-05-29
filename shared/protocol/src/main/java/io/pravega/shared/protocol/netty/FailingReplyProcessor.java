@@ -1,17 +1,11 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.shared.protocol.netty;
 
@@ -19,6 +13,7 @@ import io.pravega.shared.protocol.netty.WireCommands.AppendSetup;
 import io.pravega.shared.protocol.netty.WireCommands.ConditionalCheckFailed;
 import io.pravega.shared.protocol.netty.WireCommands.DataAppended;
 import io.pravega.shared.protocol.netty.WireCommands.Hello;
+import io.pravega.shared.protocol.netty.WireCommands.InvalidEventNumber;
 import io.pravega.shared.protocol.netty.WireCommands.KeepAlive;
 import io.pravega.shared.protocol.netty.WireCommands.NoSuchSegment;
 import io.pravega.shared.protocol.netty.WireCommands.NoSuchTransaction;
@@ -71,8 +66,13 @@ public abstract class FailingReplyProcessor implements ReplyProcessor {
     }
 
     @Override
-    public void noSuchBatch(NoSuchTransaction noSuchTxn) {
+    public void noSuchTransaction(NoSuchTransaction noSuchTxn) {
         throw new IllegalStateException("No such Transaction: " + noSuchTxn.txn);
+    }
+
+    @Override
+    public void invalidEventNumber(InvalidEventNumber invalidEventNumber) {
+        throw new IllegalStateException("Invalid event number: " + invalidEventNumber);
     }
 
     @Override
@@ -93,6 +93,16 @@ public abstract class FailingReplyProcessor implements ReplyProcessor {
     @Override
     public void segmentRead(SegmentRead data) {
         throw new IllegalStateException("Unexpected operation: " + data);
+    }
+    
+    @Override
+    public void segmentAttributeUpdated(WireCommands.SegmentAttributeUpdated segmentAttributeUpdated) {
+        throw new IllegalStateException("Unexpected operation: " + segmentAttributeUpdated);
+    }
+    
+    @Override
+    public void segmentAttribute(WireCommands.SegmentAttribute segmentAttribute) {
+        throw new IllegalStateException("Unexpected operation: " + segmentAttribute);
     }
 
     @Override

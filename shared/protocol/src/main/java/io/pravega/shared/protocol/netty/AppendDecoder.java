@@ -1,17 +1,11 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.shared.protocol.netty;
 
@@ -34,7 +28,7 @@ import lombok.Data;
  * which must be an AppendBlockEnd.
  * The AppendBlockEnd command should have all of the information need to construct a single
  * Append object with all of the Events in the block.
- * 
+ *
  * @see CommandEncoder For details about handling of PartialEvents
  */
 public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
@@ -47,13 +41,13 @@ public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
         private final String name;
         private long lastEventNumber;
     }
-    
+
     @Override
     public boolean acceptInboundMessage(Object msg) throws Exception {
         return msg instanceof WireCommands.SetupAppend || msg instanceof WireCommands.AppendBlock || msg instanceof WireCommands.AppendBlockEnd
                 || msg instanceof WireCommands.Padding || msg instanceof WireCommands.ConditionalAppend;
     }
-    
+
     @Override
     protected void decode(ChannelHandlerContext ctx, WireCommand command, List<Object> out) throws Exception {
         Object result = processCommand(command);
@@ -61,7 +55,7 @@ public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
             out.add(result);
         }
     }
-    
+
     @VisibleForTesting
     public Request processCommand(WireCommand command) throws Exception {
         if (currentBlock != null && command.getType() != WireCommandType.APPEND_BLOCK_END) {
@@ -75,24 +69,24 @@ public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
             break;
         case SETUP_APPEND:
             WireCommands.SetupAppend append = (WireCommands.SetupAppend) command;
-            appendingSegments.put(append.getConnectionId(), new Segment(append.getSegment()));
+            appendingSegments.put(append.getWriterId(), new Segment(append.getSegment()));
             result = append;
             break;
         case CONDITIONAL_APPEND:
             WireCommands.ConditionalAppend ca = (WireCommands.ConditionalAppend) command;
-            segment = getSegment(ca.getConnectionId());
+            segment = getSegment(ca.getWriterId());
             if (ca.getEventNumber() < segment.lastEventNumber) {
                 throw new InvalidMessageException("Last event number went backwards.");
             }
             segment.lastEventNumber = ca.getEventNumber();
             result = new Append(segment.getName(),
-                    ca.getConnectionId(),
+                    ca.getWriterId(),
                     ca.getEventNumber(),
                     ca.getData(),
                     ca.getExpectedOffset());
             break;
         case APPEND_BLOCK:
-            getSegment(((WireCommands.AppendBlock) command).getConnectionId());
+            getSegment(((WireCommands.AppendBlock) command).getWriterId());
             currentBlock = (WireCommands.AppendBlock) command;
             result = null;
             break;
@@ -101,11 +95,11 @@ public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
             if (currentBlock == null) {
                 throw new InvalidMessageException("AppendBlockEnd without AppendBlock.");
             }
-            UUID connectionId = blockEnd.getConnectionId();
-            if (!connectionId.equals(currentBlock.getConnectionId())) {
+            UUID writerId = blockEnd.getWriterId();
+            if (!writerId.equals(currentBlock.getWriterId())) {
                 throw new InvalidMessageException("AppendBlockEnd for wrong connection.");
             }
-            segment = getSegment(connectionId);
+            segment = getSegment(writerId);
             if (blockEnd.getLastEventNumber() < segment.lastEventNumber) {
                 throw new InvalidMessageException("Last event number went backwards.");
             }
@@ -116,7 +110,7 @@ public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
             ByteBuf appendDataBuf = getAppendDataBuf(blockEnd, sizeOfWholeEventsInBlock);
             segment.lastEventNumber = blockEnd.getLastEventNumber();
             currentBlock = null;
-            result = new Append(segment.name, connectionId, segment.lastEventNumber, appendDataBuf, null);
+            result = new Append(segment.name, writerId, segment.lastEventNumber, blockEnd.numEvents, appendDataBuf, null);
             break;
             //$CASES-OMITTED$
         default:
@@ -124,7 +118,7 @@ public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
         }
         return result;
     }
-    
+
     private ByteBuf getAppendDataBuf(WireCommands.AppendBlockEnd blockEnd, int sizeOfWholeEventsInBlock) throws IOException {
         ByteBuf appendDataBuf = currentBlock.getData().slice(0, sizeOfWholeEventsInBlock);
         int remaining = currentBlock.getData().readableBytes() - sizeOfWholeEventsInBlock;
@@ -151,9 +145,9 @@ public class AppendDecoder extends MessageToMessageDecoder<WireCommand> {
         }
         return appendDataBuf;
     }
-    
-    private Segment getSegment(UUID connectionId) {
-        Segment segment = appendingSegments.get(connectionId);
+
+    private Segment getSegment(UUID writerId) {
+        Segment segment = appendingSegments.get(writerId);
         if (segment == null) {
             throw new InvalidMessageException("ConnectionID refrenced before SetupAppend");
         }

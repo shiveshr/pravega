@@ -1,17 +1,11 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.common;
 
@@ -31,8 +25,7 @@ public class ExceptionHelpers {
      * @return True if a fatal error which must be rethrown, false otherwise (it can be handled in a catch block).
      */
     public static boolean mustRethrow(Throwable ex) {
-        return ex instanceof OutOfMemoryError
-                || ex instanceof StackOverflowError;
+        return ex instanceof VirtualMachineError;
     }
 
     /**
@@ -52,6 +45,27 @@ public class ExceptionHelpers {
         return ex;
     }
 
+    /**
+     * Returns true if the provided class is CompletionException or ExecutionException which need to be unwrapped.
+     * @param c The class to be tested
+     * @return True if {@link #getRealException(Throwable)} should be called on exceptions of this type
+     */
+    public static boolean shouldUnwrap(Class<? extends Exception> c) {
+        return c.equals(CompletionException.class) || c.equals(ExecutionException.class);
+    }
+    
+    /**
+     * If the provided exception is a CompletionException or ExecutionException which need be unwraped.
+     * @param e The exception to be unwrapped.
+     * @return The cause or the exception provided.
+     */
+    public static Throwable unwrapIfRequired(Throwable e) {
+        if ((e instanceof CompletionException || e instanceof ExecutionException) && e.getCause() != null) {
+            return e.getCause();
+        }
+        return e;
+    }
+    
     private static boolean canInspectCause(Throwable ex) {
         return ex instanceof CompletionException
                 || ex instanceof ExecutionException

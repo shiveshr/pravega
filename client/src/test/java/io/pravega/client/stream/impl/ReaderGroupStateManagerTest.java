@@ -1,17 +1,11 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.client.stream.impl;
 
@@ -86,7 +80,7 @@ public class ReaderGroupStateManagerTest {
                 ReaderGroupConfig.builder().build(),
                 segments);
         val readerState = new ReaderGroupStateManager("testReader", stateSynchronizer, controller, null);
-        readerState.initializeReader();
+        readerState.initializeReader(0);
         Map<Segment, Long> newSegments = readerState.acquireNewSegmentsIfNeeded(0);
         assertEquals(1, newSegments.size());
         assertEquals(Long.valueOf(1), newSegments.get(initialSegment));
@@ -137,7 +131,7 @@ public class ReaderGroupStateManagerTest {
                                                       ReaderGroupConfig.builder().build(),
                                                       segments);
         val readerState = new ReaderGroupStateManager("testReader", stateSynchronizer, controller, null);
-        readerState.initializeReader();
+        readerState.initializeReader(0);
         Map<Segment, Long> newSegments = readerState.acquireNewSegmentsIfNeeded(0);
         assertEquals(2, newSegments.size());
         assertEquals(Long.valueOf(1), newSegments.get(initialSegmentA));
@@ -181,7 +175,7 @@ public class ReaderGroupStateManagerTest {
                 stateSynchronizer,
                 controller,
                 null);
-        readerState.initializeReader();
+        readerState.initializeReader(0);
         Segment toRelease = readerState.findSegmentToReleaseIfRequired();
         assertNull(toRelease);
         Map<Segment, Long> newSegments = readerState.acquireNewSegmentsIfNeeded(0);
@@ -218,7 +212,7 @@ public class ReaderGroupStateManagerTest {
                 stateSynchronizer,
                 controller,
                 clock::get);
-        readerState1.initializeReader();
+        readerState1.initializeReader(0);
         Segment toRelease = readerState1.findSegmentToReleaseIfRequired();
         assertNull(toRelease);
         Map<Segment, Long> newSegments = readerState1.acquireNewSegmentsIfNeeded(0);
@@ -229,7 +223,7 @@ public class ReaderGroupStateManagerTest {
                 stateSynchronizer,
                 controller,
                 clock::get);
-        readerState2.initializeReader();
+        readerState2.initializeReader(0);
 
         boolean released = readerState1.releaseSegment(new Segment(scope, stream, 0), 789L, 0L);
         assertTrue(released);
@@ -280,13 +274,13 @@ public class ReaderGroupStateManagerTest {
                 stateSynchronizer,
                 controller,
                 clock::get);
-        reader1.initializeReader();
+        reader1.initializeReader(0);
 
         ReaderGroupStateManager reader2 = new ReaderGroupStateManager("reader2",
                 stateSynchronizer,
                 controller,
                 clock::get);
-        reader2.initializeReader();
+        reader2.initializeReader(0);
 
         Map<Segment, Long> segments1 = reader1.acquireNewSegmentsIfNeeded(0);
         assertFalse(segments1.isEmpty());
@@ -325,7 +319,7 @@ public class ReaderGroupStateManagerTest {
         segments2.putAll(segmentsRecovered);
         reader2.readerShutdown(new PositionImpl(segments2));
 
-        reader1.initializeReader();
+        reader1.initializeReader(0);
         segments1 = reader1.acquireNewSegmentsIfNeeded(0);
         assertEquals(4, segments1.size());
         assertEquals(segments2, segments1);
@@ -362,7 +356,7 @@ public class ReaderGroupStateManagerTest {
                 stateSynchronizer,
                 controller,
                 clock::get);
-        reader1.initializeReader();
+        reader1.initializeReader(0);
         Map<Segment, Long> segments1 = reader1.acquireNewSegmentsIfNeeded(0);
         assertEquals(6, segments1.size());
 
@@ -370,7 +364,7 @@ public class ReaderGroupStateManagerTest {
                 stateSynchronizer,
                 controller,
                 clock::get);
-        reader2.initializeReader();
+        reader2.initializeReader(0);
         assertTrue(reader2.acquireNewSegmentsIfNeeded(0).isEmpty());
 
         assertNull(reader1.findSegmentToReleaseIfRequired());
@@ -407,7 +401,7 @@ public class ReaderGroupStateManagerTest {
                 stateSynchronizer,
                 controller,
                 clock::get);
-        reader3.initializeReader();
+        reader3.initializeReader(0);
         assertTrue(reader3.acquireNewSegmentsIfNeeded(0).isEmpty());
 
         assertNotNull(reader1.findSegmentToReleaseIfRequired());
@@ -463,7 +457,7 @@ public class ReaderGroupStateManagerTest {
         segments.put(initialSegment, 1L);
         ReaderGroupStateManager.initializeReaderGroup(stateSynchronizer, ReaderGroupConfig.builder().build(), segments);
         val readerState = new ReaderGroupStateManager("testReader", stateSynchronizer, controller, null);
-        readerState.initializeReader();
+        readerState.initializeReader(0);
         assertNull(readerState.getCheckpoint());
         stateSynchronizer.updateStateUnconditionally(new CreateCheckpoint("CP1"));
         stateSynchronizer.fetchUpdates();

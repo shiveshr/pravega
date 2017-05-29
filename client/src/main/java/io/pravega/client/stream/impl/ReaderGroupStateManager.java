@@ -1,17 +1,11 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.client.stream.impl;
 
@@ -45,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import lombok.Getter;
 import lombok.val;
+import org.apache.commons.lang.math.RandomUtils;
 
 import static io.pravega.common.concurrent.FutureHelpers.getAndHandleExceptions;
 
@@ -70,7 +65,6 @@ import static io.pravega.common.concurrent.FutureHelpers.getAndHandleExceptions;
 public class ReaderGroupStateManager {
     
     static final Duration TIME_UNIT = Duration.ofMillis(1000);
-    static final Duration FETCH_STATE_INTERVAL = Duration.ofMillis(3000);
     static final Duration UPDATE_WINDOW = Duration.ofMillis(30000);
     private final Object decisionLock = new Object();
     private final HashHelper hashHelper;
@@ -106,7 +100,7 @@ public class ReaderGroupStateManager {
     /**
      * Add this reader to the reader group so that it is able to acquire segments
      */
-    void initializeReader() {
+    void initializeReader(long initialAllocationDelay) {
         AtomicBoolean alreadyAdded = new AtomicBoolean(false);
         sync.updateState(state -> {
             if (state.getSegments(readerId) == null) {
@@ -120,7 +114,8 @@ public class ReaderGroupStateManager {
             throw new IllegalStateException("The requested reader: " + readerId
                     + " cannot be added to the group because it is already in the group. Perhaps close() was not called?");
         }
-        acquireTimer.zero();
+        long randomDelay = (long) (RandomUtils.nextFloat() * Math.min(initialAllocationDelay, sync.getState().getConfig().getGroupRefreshTimeMillis()));
+        acquireTimer.reset(Duration.ofMillis(initialAllocationDelay + randomDelay));
     }
     
     /**
@@ -259,8 +254,9 @@ public class ReaderGroupStateManager {
 
     private void fetchUpdatesIfNeeded() {
         if (!fetchStateTimer.hasRemaining()) {
-            fetchStateTimer.reset(FETCH_STATE_INTERVAL);
             sync.fetchUpdates();
+            long groupRefreshTimeMillis = sync.getState().getConfig().getGroupRefreshTimeMillis();
+            fetchStateTimer.reset(Duration.ofMillis(groupRefreshTimeMillis));
         }
     }
     

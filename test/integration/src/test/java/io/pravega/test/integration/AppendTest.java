@@ -1,17 +1,11 @@
 /**
- * Copyright (c) 2017 Dell Inc., or its subsidiaries.
+ * Copyright (c) 2017 Dell Inc., or its subsidiaries. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 package io.pravega.test.integration;
 
@@ -39,13 +33,13 @@ import io.pravega.client.stream.mock.MockController;
 import io.pravega.client.stream.mock.MockStreamManager;
 import io.pravega.common.Timer;
 import io.pravega.common.concurrent.FutureHelpers;
-import io.pravega.service.contracts.StreamSegmentStore;
-import io.pravega.service.server.host.handler.AppendProcessor;
-import io.pravega.service.server.host.handler.PravegaConnectionListener;
-import io.pravega.service.server.host.handler.PravegaRequestProcessor;
-import io.pravega.service.server.host.handler.ServerConnectionInboundHandler;
-import io.pravega.service.server.store.ServiceBuilder;
-import io.pravega.service.server.store.ServiceBuilderConfig;
+import io.pravega.segmentstore.contracts.StreamSegmentStore;
+import io.pravega.segmentstore.server.host.handler.AppendProcessor;
+import io.pravega.segmentstore.server.host.handler.PravegaConnectionListener;
+import io.pravega.segmentstore.server.host.handler.PravegaRequestProcessor;
+import io.pravega.segmentstore.server.host.handler.ServerConnectionInboundHandler;
+import io.pravega.segmentstore.server.store.ServiceBuilder;
+import io.pravega.segmentstore.server.store.ServiceBuilderConfig;
 import io.pravega.shared.protocol.netty.Append;
 import io.pravega.shared.protocol.netty.AppendDecoder;
 import io.pravega.shared.protocol.netty.CommandDecoder;
@@ -125,11 +119,11 @@ public class AppendTest {
         AppendSetup setup = (AppendSetup) sendRequest(channel, new SetupAppend(2, uuid, segment));
 
         assertEquals(segment, setup.getSegment());
-        assertEquals(uuid, setup.getConnectionId());
+        assertEquals(uuid, setup.getWriterId());
 
         DataAppended ack = (DataAppended) sendRequest(channel,
                                                       new Append(segment, uuid, data.readableBytes(), data, null));
-        assertEquals(uuid, ack.getConnectionId());
+        assertEquals(uuid, ack.getWriterId());
         assertEquals(data.readableBytes(), ack.getEventNumber());
     }
 
